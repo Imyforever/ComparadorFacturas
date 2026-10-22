@@ -1,0 +1,343 @@
+/* ==========================================================================
+   ESTILO CORPORATIVO LIMPIO (ESTILO EXCEL / OFFICE)
+   Estructurado, minimalista y sin elementos decorativos innecesarios.
+   ========================================================================== */
+
+:root {
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --bg-page: #f0f2f5;
+  --bg-card: #ffffff;
+  
+  /* Verde corporativo sobrio (estilo Excel) */
+  --primary: #107c41;
+  --primary-hover: #0b5a2f;
+  --primary-active: #084222;
+  
+  --text-main: #201f1e;
+  --text-muted: #605e5c;
+  --text-light: #ffffff;
+  
+  --border: #d1d5db;
+  --border-focus: #107c41;
+  
+  --error: #a80000;
+  --error-bg: #fde7e9;
+  --success: #107c41;
+  --info: #005a9e;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+/* ================= CONTENEDOR LOGIN ================= */
+.auth-container {
+  width: 100%;
+  max-width: 390px;
+}
+
+.auth-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  padding: 30px 26px;
+}
+
+/* Cabecera */
+.auth-header {
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 12px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-icon {
+  width: 36px;
+  height: 36px;
+  background-color: var(--primary);
+  color: var(--text-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  border-radius: 2px;
+}
+
+.auth-title h1 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.auth-title p {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Formulario y Campos */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 5px;
+}
+
+.input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text-main);
+  background-color: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 1px var(--border-focus);
+}
+
+.form-group.has-error .form-input {
+  border-color: var(--error);
+  background-color: var(--error-bg);
+}
+
+.field-error {
+  display: block;
+  font-size: 11.5px;
+  color: var(--error);
+  margin-top: 3px;
+  min-height: 16px;
+}
+
+/* Botón mostrar contraseña */
+.btn-toggle-password {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 2px 5px;
+  font-family: inherit;
+}
+
+.btn-toggle-password:hover {
+  color: var(--text-main);
+  text-decoration: underline;
+}
+
+/* Casilla Recordar */
+.form-options {
+  margin: 12px 0 18px 0;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+/* Botón Iniciar Sesión */
+.btn-submit {
+  width: 100%;
+  background-color: var(--primary);
+  color: var(--text-light);
+  border: 1px solid var(--primary-hover);
+  border-radius: 3px;
+  padding: 9px 14px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-submit:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+
+.btn-submit:active:not(:disabled) {
+  background-color: var(--primary-active);
+}
+
+.btn-submit:disabled {
+  background-color: #a19f9d;
+  border-color: #a19f9d;
+  cursor: not-allowed;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Pie de tarjeta */
+.auth-footer {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* ================= TOAST / AVISOS ================= */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2000;
+  max-width: 320px;
+  width: calc(100% - 32px);
+}
+
+.toast {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--info);
+  border-radius: 3px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--text-main);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 8px;
+}
+
+.toast.toast-success { border-left-color: var(--success); }
+.toast.toast-error { border-left-color: var(--error); }
+
+.toast.toast-hiding {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ================= DASHBOARD STYLES ================= */
+.dashboard-container {
+  width: 100%;
+  max-width: 900px;
+}
+
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.dash-user-info strong {
+  font-size: 16px;
+  color: var(--text-main);
+  display: block;
+}
+
+.dash-user-info span {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.btn-logout {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  color: var(--error);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.btn-logout:hover {
+  background: #fdf2f2;
+  border-color: var(--error);
+}
+
+.table-excel {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 14px;
+  background: #ffffff;
+}
+
+.table-excel th {
+  background-color: #f3f4f6;
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.table-excel td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  color: var(--text-main);
+}
+
+.table-excel tr:nth-child(even) {
+  background-color: #fbfbfb;
+}
+
+.status-ok {
+  color: var(--primary);
+  font-weight: 600;
+}

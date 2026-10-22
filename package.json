@@ -1,0 +1,30 @@
+{
+  "name": "login-mockup-app",
+  "version": "1.0.0",
+  "description": "Maqueta moderna de inicio de sesión con backend en Node.js y Express",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "login",
+    "express",
+    "auth",
+    "mockup",
+    "glassmorphism"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1155.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^18.0.8",
+    "express": "^4.19.2",
+    "mongoose": "^8.24.6",
+    "multer": "^2.4.0",
+    "pdf-parse": "^2.4.5"
+  }
+}

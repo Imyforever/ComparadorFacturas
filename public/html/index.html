@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso al Sistema - Comparador de Facturas</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- Contenedor para mensajes / alertas -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Vista Principal de Inicio de Sesión -->
+  <main class="auth-container">
+    <div class="auth-card">
+      
+      <!-- Cabecera simple -->
+      <header class="auth-header">
+        <div class="auth-icon">CF</div>
+        <div class="auth-title">
+          <h1>Comparador de Facturas</h1>
+          <p>Portal de Conciliación y Auditoría</p>
+        </div>
+      </header>
+
+      <!-- Formulario de Acceso Directo (Solo Login) -->
+      <form id="login-form" novalidate>
+        
+        <div class="form-group" id="group-email">
+          <label for="email" class="form-label">Usuario</label>
+          <div class="input-row">
+            <input 
+              type="text" 
+              id="email" 
+              name="email" 
+              class="form-input" 
+              placeholder="admin" 
+              required
+              autocomplete="username"
+            >
+          </div>
+          <span class="field-error" id="error-email"></span>
+        </div>
+
+        <div class="form-group" id="group-password">
+          <label for="password" class="form-label">Contraseña</label>
+          <div class="input-row">
+            <input 
+              type="password" 
+              id="password" 
+              name="password" 
+              class="form-input" 
+              placeholder="••••••••••••" 
+              required
+              autocomplete="current-password"
+            >
+            <button 
+              type="button" 
+              class="btn-toggle-password" 
+              id="btn-toggle-password"
+            >
+              Ver
+            </button>
+          </div>
+          <span class="field-error" id="error-password"></span>
+        </div>
+
+        <div class="form-options">
+          <label class="checkbox-label">
+            <input type="checkbox" id="remember-me" name="rememberMe" checked>
+            <span>Recordar este equipo</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-submit" id="btn-submit">
+          <span id="btn-text">Iniciar Sesión</span>
+          <span class="spinner hidden" id="spinner"></span>
+        </button>
+      </form>
+
+      <footer class="auth-footer">
+        <span>Acceso restringido a personal autorizado</span>
+      </footer>
+
+    </div>
+  </main>
+
+  <script src="/js/login.js"></script>
+</body>
+</html>
