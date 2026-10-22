@@ -89,7 +89,21 @@ const reconcile = (invoices, bankTransactions) => {
     // 3. Buscar movimientos bancarios con monto identico (tolerancia de 5 centavos)
     const matchingCandidates = withdrawals.filter((tx, idx) => {
       if (usedWithdrawalIds.has(idx)) return false;
-      return Math.abs(tx.monto - inv.total) < 0.05;
+      const diff = Math.abs(tx.monto - inv.total);
+      if (diff >= 0.05) return false;
+
+      // Si no es monto exacto, y el RFC y nombre del proveedor discrepan totalmente, no asociar
+      if (
+        diff > 0.005 &&
+        tx.rfcDetectado &&
+        inv.rfcEmisor &&
+        tx.rfcDetectado !== inv.rfcEmisor &&
+        !matchVendorName(inv.emisor, tx.concepto)
+      ) {
+        return false;
+      }
+
+      return true;
     });
 
     let bestMatch = null;

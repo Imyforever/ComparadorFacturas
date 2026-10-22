@@ -317,7 +317,7 @@ router.delete('/bank-statement/:id', async (req, res) => {
     const { periodo, nombreArchivo } = fileDoc;
 
     await BankStatementFile.deleteOne({ _id: fileDoc._id });
-    const deletedMvs = await BankMovement.deleteMany({ periodo, archivoOrigen: nombreArchivo });
+    const deletedMvs = await BankMovement.deleteMany({ archivoOrigen: nombreArchivo });
 
     const { summary } = await runReconciliationForPeriod(periodo);
     const bankStatements = await BankStatementFile.find({ periodo }).sort({ createdAt: -1 }).lean();

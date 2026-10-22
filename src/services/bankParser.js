@@ -206,6 +206,104 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
 };
 
 /**
+ * Parsea un estado de cuenta de Tarjeta de Credito Scotiabank (Scotia Travel, Scotia Rewards, etc.)
+ */
+const parseScotiabankCreditCardStatement = (text, defaultYear = '2026') => {
+  // 1. Extraer numero de tarjeta y cuenta
+  const cardMatch =
+    text.match(/(?:No\.\s*Tarjeta|Número\s+de\s+tarjeta:?)\s*([0-9\s]{16,22})/i) ||
+    text.match(/Tarjeta\s+titular\s+X+([0-9]{4})/i);
+
+  let cuenta = 'Tarjeta Credito';
+  if (cardMatch) {
+    const rawCard = cardMatch[1].replace(/\s+/g, '');
+    const last4 = rawCard.slice(-4);
+    cuenta = `Tarjeta ${last4}`;
+  }
+
+  // 2. Extraer rango de fechas del periodo
+  let periodStart = null;
+  let periodEnd = null;
+  const periodMatch =
+    text.match(/Periodo:\s*(\d{2}-[a-z]{3}-\d{4})\s+al\s+(\d{2}-[a-z]{3}-\d{4})/i) ||
+    text.match(/(\d{2}-[a-z]{3}-\d{4})\s+al\s+(\d{2}-[a-z]{3}-\d{4})/i);
+
+  if (periodMatch) {
+    periodStart = periodMatch[1];
+    periodEnd = periodMatch[2];
+  }
+
+  const detectedPeriodsSet = new Set();
+  if (periodStart && periodEnd) {
+    const mStart = periodStart.split('-')[1]?.toUpperCase();
+    const yStart = periodStart.split('-')[2];
+    const mEnd = periodEnd.split('-')[1]?.toUpperCase();
+    const yEnd = periodEnd.split('-')[2];
+    if (mStart && MONTH_MAP[mStart]) detectedPeriodsSet.add(`${yStart}-${MONTH_MAP[mStart]}`);
+    if (mEnd && MONTH_MAP[mEnd]) detectedPeriodsSet.add(`${yEnd}-${MONTH_MAP[mEnd]}`);
+  }
+
+  // 3. Procesar lineas de movimientos
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const rowRegex = /^(\d{2}-[a-z]{3}-\d{4})\s+(\d{2}-[a-z]{3}-\d{4})\s+(.*?)\s+([+-])\s*\$?\s*([0-9,]+\.[0-9]{2})$/i;
+  const rfcRegex = /\b([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b/i;
+
+  const movements = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(rowRegex);
+    if (!match) continue;
+
+    const fechaOp = match[1];
+    const fechaCargo = match[2];
+    const desc = match[3].trim();
+    const sign = match[4];
+    const amount = parseFloat(match[5].replace(/,/g, ''));
+
+    const parts = fechaOp.split('-');
+    const day = parts[0];
+    const monthStr = parts[1].toUpperCase();
+    const year = parts[2] || defaultYear;
+    const monthNum = MONTH_MAP[monthStr] || '09';
+    const mvPeriodo = `${year}-${monthNum}`;
+
+    detectedPeriodsSet.add(mvPeriodo);
+
+    // Deteccion del RFC del comercio/proveedor
+    const rfcMatch = desc.match(rfcRegex);
+    const rfc = rfcMatch ? `${rfcMatch[1]}${rfcMatch[2]}${rfcMatch[3]}`.toUpperCase() : null;
+
+    // En tarjetas de credito:
+    // + = cargo / compra regular a un comercio (Retiro / Egreso de dinero para la empresa)
+    // - = abono / pago a la tarjeta en linea (Deposito a favor de la tarjeta)
+    const isCargo = sign === '+';
+
+    movements.push({
+      banco: 'Scotiabank (TDC)',
+      cuenta,
+      periodo: mvPeriodo,
+      fecha: `${day}-${monthStr}-${year}`,
+      tipo: isCargo ? 'Retiro' : 'Deposito',
+      monto: amount,
+      saldo: 0,
+      rfcDetectado: rfc,
+      concepto: `${desc} (Cargo: ${fechaCargo})`.substring(0, 250),
+      conciliado: false
+    });
+  }
+
+  return {
+    movements,
+    detectedPeriods: Array.from(detectedPeriodsSet).sort()
+  };
+};
+
+/**
  * Parsea un estado de cuenta bancario detectando automaticamente la institucion bancaria
  * @param {Buffer} pdfBuffer - Buffer del archivo PDF
  * @param {string} defaultYear - Anio default (ej: "2026")
@@ -216,7 +314,7 @@ const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
   const result = await parser.getText();
   const text = result.text;
 
-  // Deteccion del banco emisor
+  // 1. Deteccion de BBVA (Maestra Pyme y formatos empresariales)
   const isBBVA =
     /BBVA/i.test(text.substring(0, 1500)) ||
     /MAESTRA PYME/i.test(text.substring(0, 1500)) ||
@@ -226,6 +324,16 @@ const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
     return parseBBVAStatement(text, defaultYear);
   }
 
+  // 2. Deteccion de Tarjeta de Credito Scotiabank (Scotia Travel, Scotia Rewards, etc.)
+  const isScotiabankCreditCard =
+    /(?:Scotia\s*(?:Travel|Rewards)|Tarjeta\s+de\s+Cr[eé]dito\s+Scotiabank|TU\s+PAGO\s+REQUERIDO\s+ESTE\s+PERIODO|CARGOS,\s*ABONOS\s*Y\s*COMPRAS\s*REGULARES)/i.test(text) ||
+    (/\b\d{2}-[a-z]{3}-\d{4}\s+\d{2}-[a-z]{3}-\d{4}\b/i.test(text) && /[+-]\s*\$?[0-9,]+\.[0-9]{2}/.test(text));
+
+  if (isScotiabankCreditCard) {
+    return parseScotiabankCreditCardStatement(text, defaultYear);
+  }
+
+  // 3. Scotiabank tradicional (Cuenta de Cheques / Débito)
   return parseScotiabankStatement(text, defaultYear);
 };
 
