@@ -595,14 +595,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         let paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Sin pago registrado</span>';
-        if (inv.estadoPago === 'Pagada' && inv.pagoAsociado) {
-          const p = inv.pagoAsociado;
-          paymentDetailHtml = `
-            <div class="payment-detail">
-              <strong>Banco:</strong> ${p.banco || '-'} | <strong>Fecha:</strong> ${p.fechaPago || '-'} | <strong>Monto:</strong> ${formatMoney(p.montoRetiro)}<br>
-              <strong>Concepto:</strong> ${p.conceptoBanco || p.banco || 'Retiro bancario'}
-            </div>
-          `;
+        if (inv.estadoPago === 'Pagada') {
+          if (inv.pagoAsociado && (inv.pagoAsociado.banco || inv.pagoAsociado.montoRetiro)) {
+            const p = inv.pagoAsociado;
+            paymentDetailHtml = `
+              <div class="payment-detail">
+                <strong>Banco:</strong> ${p.banco || '-'} | <strong>Fecha:</strong> ${p.fechaPago || '-'} | <strong>Monto:</strong> ${formatMoney(p.montoRetiro || inv.total)}<br>
+                <strong>Concepto:</strong> ${p.conceptoBanco || p.banco || 'Retiro bancario'}
+              </div>
+            `;
+          } else {
+            paymentDetailHtml = '<span style="color:var(--success); font-weight:600; font-size:11.5px;">✓ Pagada (Manual)</span>';
+          }
         } else if (inv.estadoSat === 'Cancelado') {
           paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Comprobante cancelado en SAT</span>';
         }
@@ -625,8 +629,13 @@ document.addEventListener('DOMContentLoaded', () => {
             <td style="text-align:center;">${badgeHtml}</td>
             <td>${paymentDetailHtml}</td>
             <td>${noteContent}</td>
-            <td style="text-align:center;">
-              <button type="button" class="btn-action-small" onclick="openEditModal('${inv.uuid}')" title="Editar estado y agregar observaciones">
+            <td style="text-align:center; white-space:nowrap;">
+              ${inv.estadoPago !== 'Pagada' && inv.estadoSat !== 'Cancelado' ? `
+                <button type="button" class="btn-action-small btn-action-primary" onclick="openLinkPaymentModal('${inv.uuid}')" style="margin-right:4px;" title="Vincular con pago bancario o marcar como pagada">
+                  Pagar
+                </button>
+              ` : ''}
+              <button type="button" class="btn-action-small" onclick="openEditModal('${inv.uuid}')" title="Editar estado y notas">
                 Editar
               </button>
             </td>
@@ -929,9 +938,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.href = `/api/reconciliation/export-csv?periodo=${currentPeriodo}&entidad=${encodeURIComponent(currentEntidad)}`;
   });
 
-  // 14. Logica de Modal para Editar Estado y Observaciones de una Factura
+  // 14. Logica de Modal para Editar Estado, Vincular por Importe y Observaciones de una Factura
   let activeEditingUuid = null;
   const editModal = document.getElementById('edit-invoice-modal');
+  const modalEditTitle = document.getElementById('modal-edit-title');
   const modalEmisor = document.getElementById('modal-emisor');
   const modalUuid = document.getElementById('modal-uuid');
   const modalTotal = document.getElementById('modal-total');
@@ -942,20 +952,74 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalStatus = document.getElementById('modal-status');
   const btnResetAuto = document.getElementById('btn-reset-auto');
   const btnSaveInvoice = document.getElementById('btn-save-invoice');
+  const modalQuickPayBar = document.getElementById('modal-quick-pay-bar');
+  const modalCurrentBadge = document.getElementById('modal-current-badge');
+  const btnQuickMarkPaid = document.getElementById('btn-quick-mark-paid');
+  const modalBankMatchBadge = document.getElementById('modal-bank-match-badge');
+  const modalLinkedPaymentCard = document.getElementById('modal-linked-payment-card');
+  const modalLinkedBanco = document.getElementById('modal-linked-banco');
+  const modalLinkedMonto = document.getElementById('modal-linked-monto');
+  const modalLinkedFecha = document.getElementById('modal-linked-fecha');
+  const modalLinkedConcepto = document.getElementById('modal-linked-concepto');
+  const modalBankCandidatesSection = document.getElementById('modal-bank-candidates-section');
+  const modalBankSearchInput = document.getElementById('modal-bank-search-input');
+  const modalBankCandidatesList = document.getElementById('modal-bank-candidates-list');
 
-  window.openEditModal = (uuid) => {
+  window.openEditModal = (uuid, focusPayment = false) => {
     const inv = cachedInvoices.find((i) => i.uuid === uuid);
     if (!inv) return;
 
     activeEditingUuid = uuid;
-    modalEmisor.textContent = inv.emisor || 'Sin emisor registrado';
-    modalUuid.textContent = inv.uuid;
-    modalTotal.textContent = formatMoney(inv.total);
-    modalFecha.textContent = inv.fechaEmision ? inv.fechaEmision.split('T')[0] : '-';
-    modalEfecto.textContent = inv.efecto || 'Ingreso';
-    modalEstadoPago.value = inv.estadoPago || 'No Pagada';
-    modalObservaciones.value = inv.observaciones || '';
-    modalStatus.innerHTML = '';
+    if (modalEditTitle) modalEditTitle.textContent = focusPayment ? 'Vincular Pago de Factura' : 'Factura y Pago';
+    if (modalEmisor) modalEmisor.textContent = inv.emisor || 'Sin emisor registrado';
+    if (modalUuid) modalUuid.textContent = inv.uuid;
+    if (modalTotal) modalTotal.textContent = formatMoney(inv.total);
+    if (modalFecha) modalFecha.textContent = inv.fechaEmision ? String(inv.fechaEmision).split('T')[0] : '-';
+    if (modalEfecto) modalEfecto.textContent = inv.efecto || 'Ingreso';
+    if (modalEstadoPago) modalEstadoPago.value = inv.estadoPago || 'No Pagada';
+    if (modalObservaciones) modalObservaciones.value = inv.observaciones || '';
+    if (modalStatus) modalStatus.innerHTML = '';
+    if (modalBankSearchInput) modalBankSearchInput.value = '';
+
+    // Badge de estado actual en barra rapida
+    if (modalCurrentBadge) {
+      if (inv.estadoPago === 'Pagada') {
+        modalCurrentBadge.className = 'badge-paid';
+        modalCurrentBadge.textContent = 'Pagada';
+      } else if (inv.estadoPago === 'No Pagada') {
+        modalCurrentBadge.className = 'badge-unpaid';
+        modalCurrentBadge.textContent = 'No Pagada';
+      } else if (inv.estadoPago === 'Cancelada') {
+        modalCurrentBadge.className = 'badge-canceled';
+        modalCurrentBadge.textContent = 'Cancelada';
+      } else {
+        modalCurrentBadge.className = 'badge-na';
+        modalCurrentBadge.textContent = inv.estadoPago || 'No Pagada';
+      }
+    }
+
+    if (btnQuickMarkPaid) {
+      btnQuickMarkPaid.style.display = inv.estadoPago === 'Pagada' ? 'none' : 'inline-block';
+    }
+
+    // Comprobar si ya tiene un pago bancario vinculado
+    const hasLinkedBank = inv.pagoAsociado && (inv.pagoAsociado.movimientoId || inv.pagoAsociado.banco);
+    if (hasLinkedBank && inv.estadoPago === 'Pagada') {
+      if (modalLinkedPaymentCard) modalLinkedPaymentCard.style.display = 'block';
+      if (modalLinkedBanco) modalLinkedBanco.textContent = inv.pagoAsociado.banco || 'BANCO';
+      if (modalLinkedMonto) modalLinkedMonto.textContent = formatMoney(inv.pagoAsociado.montoRetiro || inv.total);
+      if (modalLinkedFecha) modalLinkedFecha.textContent = `Fecha: ${inv.pagoAsociado.fechaPago || '-'}`;
+      if (modalLinkedConcepto) modalLinkedConcepto.textContent = inv.pagoAsociado.conceptoBanco || 'Retiro bancario vinculado';
+      if (modalBankCandidatesSection) modalBankCandidatesSection.style.display = 'none';
+      if (modalBankMatchBadge) {
+        modalBankMatchBadge.className = 'badge-paid';
+        modalBankMatchBadge.textContent = 'Pago Vinculado';
+      }
+    } else {
+      if (modalLinkedPaymentCard) modalLinkedPaymentCard.style.display = 'none';
+      if (modalBankCandidatesSection) modalBankCandidatesSection.style.display = 'block';
+      renderModalBankCandidates();
+    }
 
     if (inv.editadoManualmente) {
       btnResetAuto.style.display = 'inline-block';
@@ -965,8 +1029,170 @@ document.addEventListener('DOMContentLoaded', () => {
 
     editModal.classList.remove('hidden');
     setTimeout(() => {
-      modalObservaciones.focus();
+      if (focusPayment && modalBankSearchInput) {
+        modalBankSearchInput.focus();
+      } else if (modalObservaciones) {
+        modalObservaciones.focus();
+      }
     }, 50);
+  };
+
+  window.openLinkPaymentModal = (uuid) => {
+    window.openEditModal(uuid, true);
+  };
+
+  window.renderModalBankCandidates = () => {
+    if (!activeEditingUuid || !modalBankCandidatesList) return;
+    const inv = cachedInvoices.find((i) => i.uuid === activeEditingUuid);
+    if (!inv) return;
+
+    const query = (modalBankSearchInput?.value || '').trim().toLowerCase();
+    const invTotal = Number(inv.total || 0);
+
+    // Filtrar retiros disponibles
+    let candidates = (cachedUnmatchedMovements || []).slice();
+
+    if (query) {
+      candidates = candidates.filter((m) => {
+        const text = `${m.concepto || ''} ${m.banco || ''} ${m.monto || ''} ${m.fecha || ''} ${m.rfcDetectado || ''}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    // Ordenar por diferencia con el importe de la factura
+    candidates.sort((a, b) => {
+      const diffA = Math.abs(Number(a.monto || 0) - invTotal);
+      const diffB = Math.abs(Number(b.monto || 0) - invTotal);
+      return diffA - diffB;
+    });
+
+    const exactMatches = candidates.filter((m) => Math.abs(Number(m.monto || 0) - invTotal) < 0.01);
+
+    if (modalBankMatchBadge) {
+      if (exactMatches.length > 0) {
+        modalBankMatchBadge.className = 'badge-paid';
+        modalBankMatchBadge.textContent = `${exactMatches.length} con importe exacto (${formatMoney(invTotal)})`;
+      } else if (candidates.length > 0) {
+        modalBankMatchBadge.className = 'badge-na';
+        modalBankMatchBadge.textContent = `Buscando importe: ${formatMoney(invTotal)}`;
+      } else {
+        modalBankMatchBadge.className = 'badge-na';
+        modalBankMatchBadge.textContent = 'Sin retiros disponibles';
+      }
+    }
+
+    if (candidates.length === 0) {
+      modalBankCandidatesList.innerHTML = `
+        <div style="padding:14px; text-align:center; font-size:11.5px; color:var(--text-muted);">
+          No se encontraron retiros bancarios disponibles en esta pestaña.
+        </div>
+      `;
+      return;
+    }
+
+    modalBankCandidatesList.innerHTML = candidates
+      .map((m) => {
+        const diff = Math.abs(Number(m.monto || 0) - invTotal);
+        const isExact = diff < 0.01;
+        let badgeBankClass = 'bank-badge-generic';
+        if (/bbva/i.test(m.banco)) badgeBankClass = 'bank-badge-bbva';
+        else if (/scotia/i.test(m.banco)) badgeBankClass = 'bank-badge-scotia';
+
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #f3f4f6; gap:8px;">
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span class="bank-badge ${badgeBankClass}" style="font-size:9.5px; padding:1px 5px;">${m.banco || 'BANCO'}</span>
+                <strong style="font-size:12px; color:var(--text-main);">${formatMoney(m.monto)}</strong>
+                ${isExact ? '<span class="badge-paid" style="font-size:9.5px; padding:1px 4px;">Monto Exacto</span>' : `<span style="font-size:10.5px; color:var(--text-muted);">Dif: $${diff.toFixed(2)}</span>`}
+                <span style="font-size:11px; color:var(--text-muted);">${m.fecha || ''}</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;" title="${m.concepto || ''}">
+                ${m.concepto || 'Retiro bancario'}
+              </div>
+            </div>
+            <button type="button" class="btn-action-small btn-action-primary" onclick="linkInvoiceToBankMovement('${m._id}')" style="font-size:11px; padding:3px 8px; white-space:nowrap;">
+              Vincular
+            </button>
+          </div>
+        `;
+      })
+      .join('');
+  };
+
+  window.linkInvoiceToBankMovement = async (movimientoId) => {
+    if (!activeEditingUuid) return;
+    const inv = cachedInvoices.find((i) => i.uuid === activeEditingUuid);
+    const m = (cachedUnmatchedMovements || []).find((x) => String(x._id) === String(movimientoId));
+
+    const confirmMsg = `¿Deseas vincular esta factura (${formatMoney(inv?.total)}) con el retiro bancario de ${formatMoney(m?.monto)}? La factura quedará registrada como "Pagada".`;
+    if (!confirm(confirmMsg)) return;
+
+    if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--info);">Vinculando pago bancario...</span>';
+
+    try {
+      const res = await fetch('/api/reconciliation/link-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          movimientoId,
+          invoiceUuid: activeEditingUuid,
+          observaciones: 'Conciliado manualmente por coincidencia de importe'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeEditModal();
+        await loadTabs();
+        loadData();
+      } else {
+        if (modalStatus) modalStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al vincular.'}</span>`;
+      }
+    } catch (err) {
+      if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--error);">Error de conexión con el servidor.</span>';
+    }
+  };
+
+  window.setModalStateToPaid = async () => {
+    if (!activeEditingUuid) return;
+    if (modalEstadoPago) modalEstadoPago.value = 'Pagada';
+    if (modalCurrentBadge) {
+      modalCurrentBadge.className = 'badge-paid';
+      modalCurrentBadge.textContent = 'Pagada';
+    }
+    if (btnQuickMarkPaid) btnQuickMarkPaid.style.display = 'none';
+    await saveInvoiceEdit();
+  };
+
+  window.unlinkInvoicePayment = async () => {
+    if (!activeEditingUuid) return;
+    if (!confirm('¿Deseas desvincular el pago bancario de esta factura? Pasará a estado "No Pagada".')) {
+      return;
+    }
+
+    if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--info);">Desvinculando pago...</span>';
+
+    try {
+      const res = await fetch('/api/reconciliation/unlink-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceUuid: activeEditingUuid
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeEditModal();
+        await loadTabs();
+        loadData();
+      } else {
+        if (modalStatus) modalStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al desvincular.'}</span>`;
+      }
+    } catch (err) {
+      if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--error);">Error de conexión con el servidor.</span>';
+    }
   };
 
   window.closeEditModal = () => {

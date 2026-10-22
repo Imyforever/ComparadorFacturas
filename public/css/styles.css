@@ -1231,6 +1231,18 @@ body.login-page {
   color: var(--primary);
 }
 
+.btn-action-small.btn-action-primary {
+  background-color: var(--primary);
+  border-color: var(--primary-hover);
+  color: #ffffff;
+}
+
+.btn-action-small.btn-action-primary:hover {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: #ffffff;
+}
+
 .manual-tag {
   display: inline-block;
   font-size: 9.5px;

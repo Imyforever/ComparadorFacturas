@@ -791,7 +791,7 @@ router.get('/bank-statements', async (req, res) => {
 router.patch('/invoice/:uuid', async (req, res) => {
   try {
     const { uuid } = req.params;
-    const { estadoPago, observaciones, resetAuto } = req.body;
+    const { estadoPago, observaciones, resetAuto, movimientoId, desvincularPago, pagoManual } = req.body;
 
     const invoice = await Invoice.findOne({ uuid });
     if (!invoice) {
@@ -799,7 +799,13 @@ router.patch('/invoice/:uuid', async (req, res) => {
     }
 
     if (resetAuto) {
-      // Revertir a calculo automatico
+      // Liberar movimiento bancario si tenia uno asociado
+      if (invoice.pagoAsociado?.movimientoId) {
+        await BankMovement.findByIdAndUpdate(invoice.pagoAsociado.movimientoId, {
+          $set: { conciliado: false, facturaUuid: null }
+        });
+      }
+      invoice.pagoAsociado = null;
       invoice.editadoManualmente = false;
       if (observaciones !== undefined) {
         invoice.observaciones = observaciones;
@@ -817,12 +823,69 @@ router.patch('/invoice/:uuid', async (req, res) => {
       });
     }
 
-    // Actualizacion manual
-    if (estadoPago) {
+    // Desvincular pago si se solicita
+    if (desvincularPago && invoice.pagoAsociado?.movimientoId) {
+      await BankMovement.findByIdAndUpdate(invoice.pagoAsociado.movimientoId, {
+        $set: { conciliado: false, facturaUuid: null }
+      });
+      invoice.pagoAsociado = null;
+      invoice.estadoPago = 'No Pagada';
+      invoice.editadoManualmente = false;
+    }
+
+    // Vincular con movimiento bancario si se especifico movimientoId
+    if (movimientoId) {
+      const movement = await BankMovement.findById(movimientoId);
+      if (movement) {
+        // Liberar movimiento previo si era distinto
+        if (invoice.pagoAsociado?.movimientoId && String(invoice.pagoAsociado.movimientoId) !== String(movement._id)) {
+          await BankMovement.findByIdAndUpdate(invoice.pagoAsociado.movimientoId, {
+            $set: { conciliado: false, facturaUuid: null }
+          });
+        }
+        invoice.estadoPago = 'Pagada';
+        invoice.editadoManualmente = true;
+        invoice.fechaEdicionManual = new Date();
+        invoice.pagoAsociado = {
+          movimientoId: movement._id,
+          banco: movement.banco || 'Banco',
+          fechaPago: movement.fecha,
+          montoRetiro: movement.monto,
+          diferencia: Math.round(Math.abs((movement.monto || 0) - (invoice.total || 0)) * 100) / 100,
+          conceptoBanco: movement.concepto,
+          referencia: movement.origenReferencia || ''
+        };
+        movement.conciliado = true;
+        movement.facturaUuid = invoice.uuid;
+        await movement.save();
+      }
+    } else if (pagoManual) {
+      // Pago manual sin movimiento bancario
+      invoice.estadoPago = 'Pagada';
+      invoice.editadoManualmente = true;
+      invoice.fechaEdicionManual = new Date();
+      invoice.pagoAsociado = {
+        movimientoId: null,
+        banco: pagoManual.banco || 'Pago Manual / Directo',
+        fechaPago: pagoManual.fechaPago || (invoice.fechaEmision ? String(invoice.fechaEmision).split('T')[0] : new Date().toISOString().split('T')[0]),
+        montoRetiro: Number(pagoManual.monto || invoice.total),
+        diferencia: 0.0,
+        conceptoBanco: pagoManual.concepto || 'Marcada como pagada manualmente',
+        referencia: pagoManual.referencia || ''
+      };
+    } else if (estadoPago) {
+      // Si cambia a no pagada o cancelada y tenia movimiento, liberarlo
+      if (estadoPago !== 'Pagada' && invoice.pagoAsociado?.movimientoId) {
+        await BankMovement.findByIdAndUpdate(invoice.pagoAsociado.movimientoId, {
+          $set: { conciliado: false, facturaUuid: null }
+        });
+        invoice.pagoAsociado = null;
+      }
       invoice.estadoPago = estadoPago;
       invoice.editadoManualmente = true;
       invoice.fechaEdicionManual = new Date();
     }
+
     if (observaciones !== undefined) {
       invoice.observaciones = observaciones;
     }

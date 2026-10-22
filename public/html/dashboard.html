@@ -305,26 +305,67 @@
     </div>
   </div>
 
-  <!-- Modal para Editar Factura -->
+  <!-- Modal para Editar / Vincular Factura -->
   <div id="edit-invoice-modal" class="modal-backdrop hidden">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width: 580px;">
       <div class="modal-header">
-        <h3>Editar Factura</h3>
+        <h3 id="modal-edit-title">Factura y Pago</h3>
         <button type="button" class="btn-close-modal" onclick="closeEditModal()">&times;</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
         <div class="modal-info-box">
           <div><strong>Proveedor:</strong> <span id="modal-emisor">-</span></div>
           <div style="margin-top:2px;"><strong>Folio:</strong> <code id="modal-uuid" style="font-size:11px;">-</code></div>
           <div style="display:flex; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
-            <span><strong>Total:</strong> <span id="modal-total" style="font-weight:700; color:var(--text-main);">$0.00</span></span>
+            <span><strong>Importe (Total):</strong> <span id="modal-total" style="font-weight:700; color:var(--primary); font-size:13.5px;">$0.00</span></span>
             <span><strong>Fecha:</strong> <span id="modal-fecha">-</span></span>
             <span><strong>Tipo:</strong> <span id="modal-efecto">-</span></span>
           </div>
         </div>
 
+        <!-- Accion Rapida: Poner como Pagada directamente -->
+        <div id="modal-quick-pay-bar" style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 8px 12px;">
+          <div style="font-size: 12px; color: #166534;">
+            <strong>Estado actual:</strong> <span id="modal-current-badge" class="badge-unpaid" style="margin-left: 4px;">No Pagada</span>
+          </div>
+          <button type="button" class="btn-action-small btn-action-primary" id="btn-quick-mark-paid" onclick="setModalStateToPaid()" style="font-size: 11.5px; padding: 4px 10px;">
+            ✓ Poner como Pagada
+          </button>
+        </div>
+
+        <!-- SECCION: Vincular con Pago Bancario por Importe -->
+        <div style="margin-top: 14px; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: #fafafa;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <strong style="font-size: 12.5px; color: var(--text-main);">Vincular con Pago Bancario por Importe</strong>
+            <span id="modal-bank-match-badge" class="badge-na" style="font-size: 10.5px;">Buscando coincidencias...</span>
+          </div>
+
+          <!-- Si ya tiene un pago bancario asociado -->
+          <div id="modal-linked-payment-card" style="display: none; background: #ffffff; border: 1px solid #86efac; border-left: 4px solid var(--primary); border-radius: 3px; padding: 10px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+              <div>
+                <span class="bank-badge bank-badge-generic" id="modal-linked-banco" style="font-size: 10px; padding: 1px 6px;">BANCO</span>
+                <span style="font-weight: 700; font-size: 12.5px; color: var(--text-main); margin-left: 4px;" id="modal-linked-monto">$0.00</span>
+                <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;" id="modal-linked-fecha">Fecha: -</span>
+                <div style="font-size: 11.5px; color: var(--text-main); margin-top: 4px;" id="modal-linked-concepto">-</div>
+              </div>
+              <button type="button" class="btn-action-small" onclick="unlinkInvoicePayment()" style="color: var(--error); border-color: #fca5a5; font-size: 11px; white-space: nowrap;">
+                Desvincular
+              </button>
+            </div>
+          </div>
+
+          <!-- Buscador y lista de retiros candidatos por importe -->
+          <div id="modal-bank-candidates-section">
+            <input type="text" id="modal-bank-search-input" class="search-input" placeholder="Filtrar retiros por concepto o importe..." style="width: 100%; height: 30px; font-size: 11.5px; margin-bottom: 6px;" oninput="renderModalBankCandidates()">
+            <div id="modal-bank-candidates-list" style="max-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: 3px; background: #ffffff;">
+              <!-- Se inyecta dinamicamente -->
+            </div>
+          </div>
+        </div>
+
         <div class="form-group" style="margin-top:14px;">
-          <label for="modal-estado-pago" class="form-label">Estado:</label>
+          <label for="modal-estado-pago" class="form-label">Estado de Factura:</label>
           <select id="modal-estado-pago" class="form-input">
             <option value="Pagada">Pagada</option>
             <option value="No Pagada">No Pagada</option>
@@ -335,8 +376,8 @@
         </div>
 
         <div class="form-group">
-          <label for="modal-observaciones" class="form-label">Notas:</label>
-          <textarea id="modal-observaciones" class="form-input modal-textarea" rows="3" placeholder="Nota o aclaración..."></textarea>
+          <label for="modal-observaciones" class="form-label">Notas / Observaciones:</label>
+          <textarea id="modal-observaciones" class="form-input modal-textarea" rows="2" placeholder="Nota o aclaración sobre esta factura..."></textarea>
         </div>
 
         <span id="modal-status" class="status-msg"></span>
