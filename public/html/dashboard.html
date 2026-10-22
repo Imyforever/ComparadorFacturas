@@ -125,6 +125,12 @@
           <div id="stat-canceled-amount" class="summary-amount" style="color:var(--text-muted);">$0.00</div>
           <div id="stat-canceled-count" class="summary-count">0 canceladas ante el SAT</div>
         </div>
+
+        <div class="summary-box box-unmatched-bank" id="box-unmatched-bank" onclick="scrollToUnmatchedSection()" title="Ver pagos bancarios que no aparecen en las facturas recibidas del SAT">
+          <div class="summary-title" style="color:#b45309;">Pagos sin Factura SAT</div>
+          <div id="stat-unmatched-amount" class="summary-amount" style="color:#b45309;">$0.00</div>
+          <div id="stat-unmatched-count" class="summary-count">0 pagos pendientes</div>
+        </div>
       </div>
 
       <!-- Barra de Filtros y Modo de Vista -->
@@ -255,6 +261,53 @@
         <span id="showing-count">Mostrando 0 facturas</span>
       </div>
 
+      <!-- 3. Apartado de Pagos / Movimientos Bancarios No Encontrados en Facturas Recibidas -->
+      <div class="unmatched-bank-panel" id="unmatched-bank-section">
+        <div class="panel-header">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <h3 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin: 0;">
+                Pagos Bancarios no Encontrados en Facturas Recibidas (<span id="unmatched-count-header">0</span>)
+              </h3>
+              <span class="unmatched-total-badge" id="unmatched-total-badge">$0.00</span>
+            </div>
+            <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 3px;">
+              Cargos y retiros del estado de cuenta que no coinciden con ninguna factura recibida del SAT. Compara manualmente o vincula con una factura pendiente.
+            </span>
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <input type="text" id="unmatched-search-input" class="search-input" style="width: 230px;" placeholder="Buscar en pagos bancarios..." autocomplete="off">
+            <button type="button" class="btn-action" id="btn-toggle-unmatched-table">
+              Ocultar / Mostrar
+            </button>
+          </div>
+        </div>
+
+        <div id="unmatched-table-wrapper" class="table-container" style="margin-top: 10px;">
+          <table class="table-excel">
+            <thead>
+              <tr>
+                <th style="width: 45px; text-align: center;">No.</th>
+                <th style="width: 95px;">Fecha</th>
+                <th style="width: 120px;">Banco / Cuenta</th>
+                <th>Concepto Bancario / Referencia</th>
+                <th style="width: 125px;">RFC Detectado</th>
+                <th style="width: 110px; text-align: right;">Monto Retiro</th>
+                <th style="width: 130px; text-align: center;">Estado</th>
+                <th style="width: 160px; text-align: center;">Accion Manual</th>
+              </tr>
+            </thead>
+            <tbody id="unmatched-bank-rows">
+              <tr>
+                <td colspan="8" style="text-align: center; padding: 20px; color: var(--text-muted);">
+                  No hay pagos bancarios pendientes en este periodo y pestania.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -356,6 +409,106 @@
         <button type="button" class="btn-action btn-action-primary" id="btn-submit-rename-tab" onclick="submitRenameTab()">
           Guardar Nombre
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para Comparar Manualmente un Movimiento Bancario con Facturas Recibidas -->
+  <div id="compare-manual-modal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width: 760px; width: 95%;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 style="margin: 0;">Comparar Pago Bancario vs Facturas Recibidas</h3>
+          <span class="badge-unpaid" id="compare-modal-badge" style="font-size: 11px;">Sin Factura Asociada</span>
+        </div>
+        <button type="button" class="btn-close-modal" onclick="closeCompareModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Tarjeta del Movimiento Bancario -->
+        <div class="compare-bank-card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
+            <div style="flex: 1; min-width: 250px;">
+              <span class="bank-badge bank-badge-generic" id="compare-modal-banco" style="margin-bottom: 4px; display: inline-block;">BANCO</span>
+              <div style="font-weight: 700; font-size: 13.5px; color: var(--text-main);" id="compare-modal-concepto">
+                Concepto bancario
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">
+                Fecha: <strong id="compare-modal-fecha">-</strong> | Cuenta: <strong id="compare-modal-cuenta">-</strong> | RFC Detectado: <code id="compare-modal-rfc">-</code>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <span style="font-size: 11px; color: var(--text-muted); display: block;">Monto del Retiro</span>
+              <span style="font-size: 18px; font-weight: 800; color: var(--text-main);" id="compare-modal-monto">$0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Buscador y Filtros para Facturas Recibidas Disponibles -->
+        <div style="margin-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+            <label style="font-size: 12px; font-weight: 700; color: var(--text-main);">
+              Seleccionar Factura Recibida para Vincular:
+            </label>
+            <div style="display: flex; gap: 6px;">
+              <button type="button" class="btn-action-small active" id="btn-compare-similar" onclick="filterCompareCandidates(true)">
+                Monto Similar (±10%)
+              </button>
+              <button type="button" class="btn-action-small" id="btn-compare-all" onclick="filterCompareCandidates(false)">
+                Ver Todas las Pendientes
+              </button>
+            </div>
+          </div>
+
+          <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar por proveedor, RFC o folio..." style="width: 100%; margin-bottom: 8px;" oninput="renderCompareInvoiceList()">
+
+          <div class="compare-table-container">
+            <table class="table-excel">
+              <thead>
+                <tr>
+                  <th>Proveedor / Emisor</th>
+                  <th style="width: 115px;">RFC Emisor</th>
+                  <th style="width: 90px;">Fecha</th>
+                  <th style="width: 95px; text-align: right;">Total SAT</th>
+                  <th style="width: 95px; text-align: right;">Diferencia</th>
+                  <th style="width: 110px; text-align: center;">Accion</th>
+                </tr>
+              </thead>
+              <tbody id="compare-invoice-rows">
+                <!-- Se llena dinamicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Aclaracion o Gasto no Facturable -->
+        <div class="compare-clarification-box" style="margin-top: 16px;">
+          <div style="font-weight: 600; font-size: 12px; color: var(--text-main); margin-bottom: 6px;">
+            O Marcar como Aclaracion / Gasto sin Factura (Comision, Impuesto, Retiro):
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <select id="compare-category-select" class="form-input" style="width: 190px; height: 34px; font-size: 12px;">
+              <option value="">Seleccionar Categoria...</option>
+              <option value="Comision Bancaria">Comision Bancaria</option>
+              <option value="Impuestos SAT / IMSS">Impuestos SAT / IMSS</option>
+              <option value="Nomina / Sueldos">Nomina / Sueldos</option>
+              <option value="Retiro en Efectivo">Retiro en Efectivo</option>
+              <option value="Transferencia entre Cuentas">Transferencia entre Cuentas</option>
+              <option value="Sin Factura Requerida">Sin Factura Requerida</option>
+              <option value="Aclaracion Pendiente">Aclaracion Pendiente</option>
+            </select>
+            <input type="text" id="compare-note-input" class="form-input" style="flex: 1; height: 34px; font-size: 12px; min-width: 180px;" placeholder="Nota o aclaracion (ej: Manejo de cuenta sin factura)...">
+            <button type="button" class="btn-action" onclick="saveBankClarification()" style="font-size: 12px;">
+              Guardar Nota
+            </button>
+          </div>
+        </div>
+
+        <span id="compare-status" class="status-msg"></span>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn-action" onclick="closeCompareModal()">Cerrar</button>
       </div>
     </div>
   </div>

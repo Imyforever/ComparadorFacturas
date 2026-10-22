@@ -596,7 +596,7 @@ body.login-page {
 
 @media (min-width: 900px) {
   .summary-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 12px;
   }
 }
@@ -613,6 +613,14 @@ body.login-page {
 .summary-box.box-unpaid { border-left-color: var(--error); }
 .summary-box.box-canceled { border-left-color: #8a8886; }
 .summary-box.box-total { border-left-color: var(--info); }
+.summary-box.box-unmatched-bank {
+  border-left-color: #d97706;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.summary-box.box-unmatched-bank:hover {
+  background-color: #fffbeb;
+}
 
 .summary-title {
   font-size: 11px;
@@ -1248,6 +1256,50 @@ body.login-page {
   font-size: 11px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* ================= APARTADO DE PAGOS BANCARIOS SIN FACTURA SAT ================= */
+.unmatched-bank-panel {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-left: 4px solid #d97706;
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-top: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.unmatched-total-badge {
+  background-color: #fef3c7;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #fde68a;
+}
+
+/* Modal de Comparacion Manual */
+.compare-bank-card {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+
+.compare-table-container {
+  max-height: 250px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin-top: 6px;
+}
+
+.compare-clarification-box {
+  background-color: #f9fafb;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 12px;
 }
 
 /* ================= MEDIA QUERIES ADICIONALES ================= */

@@ -59,6 +59,32 @@ document.addEventListener('DOMContentLoaded', () => {
   const statUnpaidCount = document.getElementById('stat-unpaid-count');
   const statCanceledAmount = document.getElementById('stat-canceled-amount');
   const statCanceledCount = document.getElementById('stat-canceled-count');
+  const statUnmatchedAmount = document.getElementById('stat-unmatched-amount');
+  const statUnmatchedCount = document.getElementById('stat-unmatched-count');
+
+  // Elementos del Apartado de Pagos Bancarios no Encontrados en Facturas Recibidas
+  const unmatchedCountHeader = document.getElementById('unmatched-count-header');
+  const unmatchedTotalBadge = document.getElementById('unmatched-total-badge');
+  const unmatchedSearchInput = document.getElementById('unmatched-search-input');
+  const btnToggleUnmatchedTable = document.getElementById('btn-toggle-unmatched-table');
+  const unmatchedTableWrapper = document.getElementById('unmatched-table-wrapper');
+  const unmatchedBankRows = document.getElementById('unmatched-bank-rows');
+
+  // Elementos del Modal de Comparacion Manual
+  const compareManualModal = document.getElementById('compare-manual-modal');
+  const compareModalBanco = document.getElementById('compare-modal-banco');
+  const compareModalConcepto = document.getElementById('compare-modal-concepto');
+  const compareModalFecha = document.getElementById('compare-modal-fecha');
+  const compareModalCuenta = document.getElementById('compare-modal-cuenta');
+  const compareModalRfc = document.getElementById('compare-modal-rfc');
+  const compareModalMonto = document.getElementById('compare-modal-monto');
+  const compareSearchInput = document.getElementById('compare-search-input');
+  const compareInvoiceRows = document.getElementById('compare-invoice-rows');
+  const compareCategorySelect = document.getElementById('compare-category-select');
+  const compareNoteInput = document.getElementById('compare-note-input');
+  const compareStatus = document.getElementById('compare-status');
+  const btnCompareSimilar = document.getElementById('btn-compare-similar');
+  const btnCompareAll = document.getElementById('btn-compare-all');
 
   const cfdiFileInput = document.getElementById('cfdi-file');
   const btnSelectCfdi = document.getElementById('btn-select-cfdi');
@@ -83,6 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectedField = 'emisor';
   let currentViewMode = 'detail';
   let cachedInvoices = [];
+  let cachedUnmatchedMovements = [];
+  let activeCompareMovement = null;
+  let compareSimilarOnly = true;
 
   // Elementos de Pestanias / Cuentas
   const entityTabsList = document.getElementById('entity-tabs-list');
@@ -203,9 +232,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (data.success) {
         cachedInvoices = data.invoices || [];
+        cachedUnmatchedMovements = data.unmatchedBankMovements || [];
         updateSummary(data.summary);
         updateCfdiLockState(data.hasCfdiFile, data.summary.totalFacturas);
         renderBankStatements(data.bankStatements || []);
+        renderUnmatchedBankMovements();
         updateAnalyzedOptions();
         applyFilterAndRender();
 
@@ -351,6 +382,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     statCanceledAmount.textContent = formatMoney(summary.montoCancelado);
     statCanceledCount.textContent = `${summary.canceladasCount} canceladas en SAT`;
+
+    if (statUnmatchedAmount && statUnmatchedCount) {
+      statUnmatchedAmount.textContent = formatMoney(summary.unmatchedBankMonto);
+      statUnmatchedCount.textContent = `${summary.unmatchedBankCount || 0} sin comprobante SAT`;
+    }
   }
 
   // 8. Normalizacion y Comparacion Inteligente de Texto
@@ -1152,12 +1188,310 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // ================= APARTADO DE PAGOS BANCARIOS NO ENCONTRADOS EN SAT =================
+  window.scrollToUnmatchedSection = () => {
+    const el = document.getElementById('unmatched-bank-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  if (btnToggleUnmatchedTable) {
+    btnToggleUnmatchedTable.addEventListener('click', () => {
+      if (unmatchedTableWrapper) {
+        const isHidden = unmatchedTableWrapper.style.display === 'none';
+        unmatchedTableWrapper.style.display = isHidden ? 'block' : 'none';
+        btnToggleUnmatchedTable.textContent = isHidden ? 'Ocultar' : 'Mostrar';
+      }
+    });
+  }
+
+  if (unmatchedSearchInput) {
+    unmatchedSearchInput.addEventListener('input', () => {
+      renderUnmatchedBankMovements();
+    });
+  }
+
+  function renderUnmatchedBankMovements() {
+    if (!unmatchedBankRows) return;
+
+    const query = (unmatchedSearchInput?.value || '').trim().toLowerCase();
+
+    const filtered = cachedUnmatchedMovements.filter((m) => {
+      if (!query) return true;
+      const str = `${m.fecha} ${m.banco} ${m.cuenta || ''} ${m.concepto} ${m.origenReferencia || ''} ${m.rfcDetectado || ''} ${m.monto} ${m.categoria || ''} ${m.observaciones || ''}`.toLowerCase();
+      return str.includes(query);
+    });
+
+    const totalMonto = filtered.reduce((acc, m) => acc + (m.monto || 0), 0);
+
+    if (unmatchedCountHeader) {
+      unmatchedCountHeader.textContent = filtered.length;
+    }
+    if (unmatchedTotalBadge) {
+      unmatchedTotalBadge.textContent = formatMoney(totalMonto);
+    }
+
+    if (filtered.length === 0) {
+      unmatchedBankRows.innerHTML = `
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 24px; color: var(--text-muted);">
+            ${query ? 'No se encontraron pagos bancarios con el filtro ingresado.' : 'No hay pagos bancarios pendientes de factura para este mes y pestania.'}
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    unmatchedBankRows.innerHTML = filtered
+      .map((m, idx) => {
+        let badgeClass = 'bank-badge-generic';
+        if (/bbva/i.test(m.banco)) badgeClass = 'bank-badge-bbva';
+        else if (/scotia/i.test(m.banco)) badgeClass = 'bank-badge-scotia';
+
+        const categoryTag = m.categoria
+          ? `<div style="margin-top: 3px;"><span class="badge-warning" style="font-size: 10.5px; padding: 1px 5px; border-radius: 2px;">${m.categoria}</span></div>`
+          : '';
+
+        const noteText = m.observaciones
+          ? `<div style="font-size: 11px; color: var(--info); font-style: italic; margin-top: 2px;">Nota: ${m.observaciones}</div>`
+          : '';
+
+        return `
+          <tr>
+            <td style="text-align:center; font-weight:600; color:var(--text-muted); font-size:11.5px;">${idx + 1}</td>
+            <td style="font-size:12px;">${m.fecha || '-'}</td>
+            <td>
+              <span class="bank-badge ${badgeClass}">${m.banco || 'BANCO'}</span>
+              <div style="font-size:10.5px; color:var(--text-muted); margin-top:2px;">${m.cuenta ? `Cta: ${m.cuenta}` : ''}</div>
+            </td>
+            <td>
+              <strong>${m.concepto || '-'}</strong>
+              ${m.origenReferencia ? `<div style="font-size:11px; color:var(--text-muted);">Ref: ${m.origenReferencia}</div>` : ''}
+              ${categoryTag}
+              ${noteText}
+            </td>
+            <td><code style="font-size:11px;">${m.rfcDetectado || '-'}</code></td>
+            <td style="text-align:right; font-weight:700; color:var(--error); font-size:12.5px;">${formatMoney(m.monto)}</td>
+            <td style="text-align:center;">
+              <span class="badge-unpaid" style="font-size:11px;">Sin Factura SAT</span>
+            </td>
+            <td style="text-align:center;">
+              <button type="button" class="btn-action-small btn-action-primary" onclick="openCompareModal('${m._id}')" title="Comparar y vincular con una factura recibida">
+                Comparar / Vincular
+              </button>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+  }
+
+  // ================= MODAL DE COMPARACION MANUAL =================
+  window.openCompareModal = (movimientoId) => {
+    const m = cachedUnmatchedMovements.find((x) => String(x._id) === String(movimientoId));
+    if (!m) return;
+
+    activeCompareMovement = m;
+    compareSimilarOnly = true;
+
+    if (btnCompareSimilar) btnCompareSimilar.classList.add('active');
+    if (btnCompareAll) btnCompareAll.classList.remove('active');
+
+    let badgeClass = 'bank-badge-generic';
+    if (/bbva/i.test(m.banco)) badgeClass = 'bank-badge-bbva';
+    else if (/scotia/i.test(m.banco)) badgeClass = 'bank-badge-scotia';
+
+    if (compareModalBanco) {
+      compareModalBanco.textContent = m.banco || 'BANCO';
+      compareModalBanco.className = `bank-badge ${badgeClass}`;
+    }
+
+    if (compareModalConcepto) compareModalConcepto.textContent = m.concepto || '-';
+    if (compareModalFecha) compareModalFecha.textContent = m.fecha || '-';
+    if (compareModalCuenta) compareModalCuenta.textContent = m.cuenta || 'Principal';
+    if (compareModalRfc) compareModalRfc.textContent = m.rfcDetectado || 'No detectado en banco';
+    if (compareModalMonto) compareModalMonto.textContent = formatMoney(m.monto);
+
+    if (compareCategorySelect) compareCategorySelect.value = m.categoria || '';
+    if (compareNoteInput) compareNoteInput.value = m.observaciones || '';
+    if (compareSearchInput) compareSearchInput.value = '';
+    if (compareStatus) compareStatus.innerHTML = '';
+
+    renderCompareInvoiceList();
+    if (compareManualModal) compareManualModal.classList.remove('hidden');
+  };
+
+  window.closeCompareModal = () => {
+    activeCompareMovement = null;
+    if (compareStatus) compareStatus.innerHTML = '';
+    if (compareManualModal) compareManualModal.classList.add('hidden');
+  };
+
+  window.filterCompareCandidates = (similarOnly) => {
+    compareSimilarOnly = similarOnly;
+    if (similarOnly) {
+      if (btnCompareSimilar) btnCompareSimilar.classList.add('active');
+      if (btnCompareAll) btnCompareAll.classList.remove('active');
+    } else {
+      if (btnCompareAll) btnCompareAll.classList.add('active');
+      if (btnCompareSimilar) btnCompareSimilar.classList.remove('active');
+    }
+    renderCompareInvoiceList();
+  };
+
+  window.renderCompareInvoiceList = () => {
+    if (!activeCompareMovement || !compareInvoiceRows) return;
+
+    const term = (compareSearchInput?.value || '').trim().toLowerCase();
+    const bankMonto = Number(activeCompareMovement.monto || 0);
+
+    let candidates = cachedInvoices.filter((inv) => {
+      // Excluir facturas canceladas
+      if (inv.estadoPago === 'Cancelada') return false;
+
+      if (compareSimilarOnly) {
+        const diff = Math.abs((inv.total || 0) - bankMonto);
+        const ratio = bankMonto > 0 ? diff / bankMonto : 1;
+        const isRfcMatch = activeCompareMovement.rfcDetectado && activeCompareMovement.rfcDetectado === inv.rfcEmisor;
+        const isNameMatch = matchesQuery(inv.emisor, activeCompareMovement.concepto);
+
+        if (ratio > 0.15 && !isRfcMatch && !isNameMatch) {
+          return false;
+        }
+      }
+
+      if (term) {
+        const str = `${inv.uuid} ${inv.emisor} ${inv.rfcEmisor} ${inv.total}`.toLowerCase();
+        return str.includes(term);
+      }
+
+      return true;
+    });
+
+    candidates.sort((a, b) => {
+      const diffA = Math.abs((a.total || 0) - bankMonto);
+      const diffB = Math.abs((b.total || 0) - bankMonto);
+      return diffA - diffB;
+    });
+
+    if (candidates.length === 0) {
+      compareInvoiceRows.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align: center; padding: 22px; color: var(--text-muted);">
+            No se encontraron facturas recibidas pendientes con monto similar a ${formatMoney(bankMonto)}.
+            <div style="margin-top: 8px;">
+              <button type="button" class="btn-action-small" onclick="filterCompareCandidates(false)">
+                Mostrar todas las facturas pendientes de este mes
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    compareInvoiceRows.innerHTML = candidates
+      .map((inv) => {
+        const diff = Math.abs((inv.total || 0) - bankMonto);
+        const isExact = diff < 0.01;
+        const diffBadge = isExact
+          ? '<span class="badge-paid" style="font-size: 11px;">Monto Exacto</span>'
+          : `<span style="font-size: 11.5px; color: ${diff < 1 ? 'var(--primary)' : 'var(--text-muted)'}; font-weight: 600;">$${diff.toFixed(2)}</span>`;
+
+        const isCurrentlyPaid = inv.estadoPago === 'Pagada';
+
+        return `
+          <tr>
+            <td>
+              <strong>${inv.emisor || 'Sin emisor'}</strong>
+              <div style="font-size:10.5px; font-family:monospace; color:var(--text-muted);">${inv.uuid.substring(0, 18)}...</div>
+            </td>
+            <td><code style="font-size:11px;">${inv.rfcEmisor || '-'}</code></td>
+            <td style="font-size:11.5px;">${inv.fechaEmision ? inv.fechaEmision.split('T')[0] : '-'}</td>
+            <td style="text-align:right; font-weight:700;">${formatMoney(inv.total)}</td>
+            <td style="text-align:right;">${diffBadge}</td>
+            <td style="text-align:center;">
+              <button type="button" class="btn-action-small btn-action-primary" onclick="linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')" style="font-size:11px; padding:3px 8px;">
+                ${isCurrentlyPaid ? 'Reasignar' : 'Vincular'}
+              </button>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+  };
+
+  window.linkMovementToInvoice = async (movimientoId, invoiceUuid) => {
+    if (!confirm('Desea vincular este pago bancario con la factura seleccionada? La factura quedara registrada como "Pagada".')) {
+      return;
+    }
+
+    if (compareStatus) compareStatus.innerHTML = '<span style="color:var(--info);">Vinculando pago con factura...</span>';
+
+    try {
+      const res = await fetch('/api/reconciliation/link-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          movimientoId,
+          invoiceUuid,
+          observaciones: 'Conciliado manualmente desde apartado de pagos bancarios'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeCompareModal();
+        await loadTabs();
+        loadData();
+      } else {
+        if (compareStatus) compareStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al vincular.'}</span>`;
+      }
+    } catch (err) {
+      if (compareStatus) compareStatus.innerHTML = `<span style="color:var(--error);">Error de conexion con el servidor.</span>`;
+    }
+  };
+
+  window.saveBankClarification = async () => {
+    if (!activeCompareMovement) return;
+
+    const categoria = compareCategorySelect?.value || '';
+    const observaciones = compareNoteInput?.value.trim() || '';
+
+    if (!categoria && !observaciones) {
+      alert('Seleccione una categoria o ingrese una nota aclaratoria para este pago bancario.');
+      return;
+    }
+
+    if (compareStatus) compareStatus.innerHTML = '<span style="color:var(--info);">Guardando aclaracion...</span>';
+
+    try {
+      const res = await fetch(`/api/reconciliation/bank-movement/${activeCompareMovement._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoria, observaciones })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeCompareModal();
+        loadData();
+      } else {
+        if (compareStatus) compareStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al guardar.'}</span>`;
+      }
+    } catch (err) {
+      if (compareStatus) compareStatus.innerHTML = `<span style="color:var(--error);">Error de conexion con el servidor.</span>`;
+    }
+  };
+
   // Eventos de teclado y clic fuera de los modales
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (editModal && !editModal.classList.contains('hidden')) closeEditModal();
       if (createTabModal && !createTabModal.classList.contains('hidden')) closeCreateTabModal();
       if (renameTabModal && !renameTabModal.classList.contains('hidden')) closeRenameTabModal();
+      if (compareManualModal && !compareManualModal.classList.contains('hidden')) closeCompareModal();
     }
     if (e.key === 'Enter') {
       if (createTabModal && !createTabModal.classList.contains('hidden')) {
@@ -1185,6 +1519,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (renameTabModal) {
     renameTabModal.addEventListener('click', (e) => {
       if (e.target === renameTabModal) closeRenameTabModal();
+    });
+  }
+
+  if (compareManualModal) {
+    compareManualModal.addEventListener('click', (e) => {
+      if (e.target === compareManualModal) closeCompareModal();
     });
   }
 

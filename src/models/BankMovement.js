@@ -66,6 +66,14 @@ const bankMovementSchema = new mongoose.Schema(
     },
     archivoOrigen: {
       type: String
+    },
+    observaciones: {
+      type: String,
+      default: ''
+    },
+    categoria: {
+      type: String,
+      default: ''
     }
   },
   {

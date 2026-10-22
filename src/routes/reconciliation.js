@@ -51,32 +51,86 @@ const ensureDefaultTabs = async (periodo) => {
 const runReconciliationForPeriod = async (periodo, entidad = 'Personal') => {
   const invoices = await Invoice.find({ periodo, entidad }).lean();
   const bankMovements = await BankMovement.find({
+    periodo,
     entidad,
     tipo: 'Retiro'
   }).lean();
 
   if (invoices.length === 0) {
+    await BankMovement.updateMany(
+      { periodo, entidad, tipo: 'Retiro' },
+      { $set: { conciliado: false, facturaUuid: null } }
+    );
     return { summary: null };
   }
 
-  const { summary, reconciledInvoices } = reconcile(invoices, bankMovements);
+  // 1. Facturas manuales que ya tienen un movimientoId asignado
+  const manualInvoices = invoices.filter((i) => i.editadoManualmente && i.estadoPago === 'Pagada');
+  const manuallyUsedMovementIds = new Set(
+    manualInvoices
+      .map((i) => i.pagoAsociado?.movimientoId)
+      .filter(Boolean)
+      .map((id) => String(id))
+  );
 
-  const bulkOps = reconciledInvoices
-    .filter((inv) => !inv.editadoManualmente)
-    .map((inv) => ({
+  // 2. Movimientos disponibles para conciliacion automatica
+  const availableMovements = bankMovements.filter((m) => !manuallyUsedMovementIds.has(String(m._id)));
+
+  // 3. Facturas automaticas
+  const autoInvoices = invoices.filter((i) => !i.editadoManualmente);
+
+  const { summary, reconciledInvoices } = reconcile(autoInvoices, availableMovements);
+
+  // 4. Actualizar facturas automaticas
+  const bulkInvoiceOps = reconciledInvoices.map((inv) => ({
+    updateOne: {
+      filter: { uuid: inv.uuid },
+      update: {
+        $set: {
+          estadoPago: inv.estadoPago,
+          pagoAsociado: inv.pagoAsociado
+        }
+      }
+    }
+  }));
+
+  if (bulkInvoiceOps.length > 0) {
+    await Invoice.bulkWrite(bulkInvoiceOps);
+  }
+
+  // 5. Construir mapa de todos los movimientos que quedaron asociados (manuales y automaticos)
+  const matchedMovementMap = new Map();
+
+  for (const inv of manualInvoices) {
+    if (inv.pagoAsociado?.movimientoId) {
+      matchedMovementMap.set(String(inv.pagoAsociado.movimientoId), inv.uuid);
+    }
+  }
+
+  for (const inv of reconciledInvoices) {
+    if (inv.estadoPago === 'Pagada' && inv.pagoAsociado?.movimientoId) {
+      matchedMovementMap.set(String(inv.pagoAsociado.movimientoId), inv.uuid);
+    }
+  }
+
+  // 6. Actualizar cada BankMovement con su estado conciliado y facturaUuid
+  const bulkBankOps = bankMovements.map((bm) => {
+    const matchedUuid = matchedMovementMap.get(String(bm._id));
+    return {
       updateOne: {
-        filter: { uuid: inv.uuid },
+        filter: { _id: bm._id },
         update: {
           $set: {
-            estadoPago: inv.estadoPago,
-            pagoAsociado: inv.pagoAsociado
+            conciliado: !!matchedUuid,
+            facturaUuid: matchedUuid || null
           }
         }
       }
-    }));
+    };
+  });
 
-  if (bulkOps.length > 0) {
-    await Invoice.bulkWrite(bulkOps);
+  if (bulkBankOps.length > 0) {
+    await BankMovement.bulkWrite(bulkBankOps);
   }
 
   return { summary };
@@ -248,6 +302,19 @@ router.get('/data', async (req, res) => {
 
     const bankMovementsCount = await BankMovement.countDocuments({ periodo, entidad, tipo: 'Retiro' });
 
+    // Movimientos bancarios de retiro que NO se encuentran asociados a ninguna factura recibida
+    const unmatchedBankMovements = await BankMovement.find({
+      periodo,
+      entidad,
+      tipo: 'Retiro',
+      conciliado: false
+    })
+      .sort({ fechaNormalizada: -1, fecha: -1 })
+      .lean();
+
+    const unmatchedBankCount = unmatchedBankMovements.length;
+    const unmatchedBankMonto = unmatchedBankMovements.reduce((acc, m) => acc + (m.monto || 0), 0);
+
     // Consultar lista de estados de cuenta bancarios registrados para el mes y la entidad
     const bankStatements = await BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean();
 
@@ -267,10 +334,199 @@ router.get('/data', async (req, res) => {
         montoEgresos,
         canceladasCount: canceladas.length,
         montoCancelado,
-        bankMovementsCount
+        bankMovementsCount,
+        unmatchedBankCount,
+        unmatchedBankMonto
       },
       bankStatements,
-      invoices
+      invoices,
+      unmatchedBankMovements
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.1 Vincular manualmente un movimiento bancario con una factura de Facturas Recibidas
+router.post('/link-manual', async (req, res) => {
+  try {
+    const { movimientoId, invoiceUuid, observaciones } = req.body;
+    if (!movimientoId || !invoiceUuid) {
+      return res.status(400).json({ success: false, message: 'Debe especificar movimientoId e invoiceUuid.' });
+    }
+
+    const movement = await BankMovement.findById(movimientoId);
+    if (!movement) {
+      return res.status(404).json({ success: false, message: 'Movimiento bancario no encontrado.' });
+    }
+
+    const invoice = await Invoice.findOne({ uuid: invoiceUuid });
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: 'Factura no encontrada.' });
+    }
+
+    // Vincular Factura con Movimiento Bancario
+    invoice.estadoPago = 'Pagada';
+    invoice.editadoManualmente = true;
+    invoice.fechaEdicionManual = new Date();
+    invoice.pagoAsociado = {
+      movimientoId: movement._id,
+      banco: movement.banco || 'Banco',
+      fechaPago: movement.fecha,
+      montoRetiro: movement.monto,
+      diferencia: Math.round(Math.abs((movement.monto || 0) - (invoice.total || 0)) * 100) / 100,
+      conceptoBanco: movement.concepto,
+      referencia: movement.origenReferencia || ''
+    };
+    if (observaciones) {
+      invoice.observaciones = observaciones.trim();
+    }
+    await invoice.save();
+
+    // Actualizar movimiento bancario
+    movement.conciliado = true;
+    movement.facturaUuid = invoice.uuid;
+    await movement.save();
+
+    return res.json({
+      success: true,
+      message: `Pago bancario de $${movement.monto.toFixed(2)} vinculado exitosamente con la factura ${invoice.uuid.substring(0, 8)}... (${invoice.emisor}).`
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.2 Desvincular manualmente una factura de su movimiento bancario
+router.post('/unlink-manual', async (req, res) => {
+  try {
+    const { movimientoId, invoiceUuid } = req.body;
+    if (!movimientoId && !invoiceUuid) {
+      return res.status(400).json({ success: false, message: 'Debe especificar movimientoId o invoiceUuid.' });
+    }
+
+    let targetInvoice = null;
+    let targetMovement = null;
+
+    if (invoiceUuid) {
+      targetInvoice = await Invoice.findOne({ uuid: invoiceUuid });
+      if (targetInvoice && targetInvoice.pagoAsociado?.movimientoId) {
+        targetMovement = await BankMovement.findById(targetInvoice.pagoAsociado.movimientoId);
+      }
+    } else if (movimientoId) {
+      targetMovement = await BankMovement.findById(movimientoId);
+      if (targetMovement && targetMovement.facturaUuid) {
+        targetInvoice = await Invoice.findOne({ uuid: targetMovement.facturaUuid });
+      }
+    }
+
+    if (targetInvoice) {
+      targetInvoice.estadoPago = 'No Pagada';
+      targetInvoice.pagoAsociado = null;
+      targetInvoice.editadoManualmente = false;
+      await targetInvoice.save();
+    }
+
+    if (targetMovement) {
+      targetMovement.conciliado = false;
+      targetMovement.facturaUuid = null;
+      await targetMovement.save();
+    }
+
+    return res.json({
+      success: true,
+      message: 'Vinculacion manual removida exitosamente.'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.3 Actualizar categoria u observaciones de un movimiento bancario no encontrado en SAT
+router.patch('/bank-movement/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { observaciones, categoria } = req.body;
+
+    const movement = await BankMovement.findById(id);
+    if (!movement) {
+      return res.status(404).json({ success: false, message: 'Movimiento bancario no encontrado.' });
+    }
+
+    const updateFields = {};
+    if (observaciones !== undefined) updateFields.observaciones = observaciones.trim();
+    if (categoria !== undefined) updateFields.categoria = categoria.trim();
+
+    await BankMovement.findByIdAndUpdate(id, { $set: updateFields });
+
+    return res.json({
+      success: true,
+      message: 'Movimiento bancario actualizado exitosamente.'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.4 Registrar factura externa manualmente y vincularla a un pago bancario
+router.post('/manual-invoice', async (req, res) => {
+  try {
+    const { periodo, entidad, uuid, emisor, rfcEmisor, total, fechaEmision, observaciones, vincularConMovimientoId } = req.body;
+
+    if (!periodo || !uuid || !emisor || total === undefined) {
+      return res.status(400).json({ success: false, message: 'Faltan campos obligatorios para registrar la factura.' });
+    }
+
+    const cleanUuid = uuid.trim().toUpperCase();
+    const existing = await Invoice.findOne({ uuid: cleanUuid });
+    if (existing) {
+      return res.status(400).json({ success: false, message: `Ya existe una factura registrada con el UUID ${cleanUuid}.` });
+    }
+
+    let pagoAsociado = null;
+    let estadoPago = 'No Pagada';
+
+    if (vincularConMovimientoId) {
+      const movement = await BankMovement.findById(vincularConMovimientoId);
+      if (movement) {
+        estadoPago = 'Pagada';
+        pagoAsociado = {
+          movimientoId: movement._id,
+          banco: movement.banco || 'Banco',
+          fechaPago: movement.fecha,
+          montoRetiro: movement.monto,
+          diferencia: Math.round(Math.abs((movement.monto || 0) - Number(total)) * 100) / 100,
+          conceptoBanco: movement.concepto,
+          referencia: movement.origenReferencia || ''
+        };
+        movement.conciliado = true;
+        movement.facturaUuid = cleanUuid;
+        await movement.save();
+      }
+    }
+
+    const newInvoice = new Invoice({
+      uuid: cleanUuid,
+      periodo,
+      entidad: entidad || 'Personal',
+      emisor: emisor.trim(),
+      rfcEmisor: (rfcEmisor || '').trim().toUpperCase(),
+      total: Number(total),
+      fechaEmision: fechaEmision ? new Date(fechaEmision) : new Date(),
+      efecto: 'Ingreso',
+      estadoSat: 'Vigente',
+      estadoPago,
+      pagoAsociado,
+      observaciones: observaciones ? observaciones.trim() : 'Factura registrada manualmente',
+      editadoManualmente: true,
+      fechaEdicionManual: new Date()
+    });
+
+    await newInvoice.save();
+
+    return res.json({
+      success: true,
+      message: `Factura ${cleanUuid.substring(0, 8)}... registrada y conciliada exitosamente.`
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -601,7 +857,50 @@ router.get('/export-csv', async (req, res) => {
       `"${(inv.observaciones || '').replace(/"/g, '""')}"`
     ]);
 
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+    const unmatchedBankMovements = await BankMovement.find({
+      periodo,
+      entidad,
+      tipo: 'Retiro',
+      conciliado: false
+    })
+      .sort({ fechaNormalizada: -1, fecha: -1 })
+      .lean();
+
+    const unmatchedHeaders = [
+      'No.',
+      'Fecha Retiro',
+      'Banco',
+      'Cuenta',
+      'Concepto Bancario / Referencia',
+      'RFC Detectado',
+      'Monto Retiro',
+      'Categoria',
+      'Observaciones / Nota'
+    ];
+
+    const unmatchedRows = unmatchedBankMovements.map((m, idx) => [
+      idx + 1,
+      `"${m.fecha}"`,
+      `"${m.banco}"`,
+      `"${m.cuenta || ''}"`,
+      `"${(m.concepto || '').replace(/"/g, '""')}"`,
+      `"${m.rfcDetectado || ''}"`,
+      (m.monto || 0).toFixed(2),
+      `"${(m.categoria || '').replace(/"/g, '""')}"`,
+      `"${(m.observaciones || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvSections = [
+      '--- CONCILIACION DE FACTURAS RECIBIDAS (SAT) ---',
+      headers.join(','),
+      ...rows.map((r) => r.join(',')),
+      '',
+      '--- PAGOS BANCARIOS NO ENCONTRADOS EN FACTURAS RECIBIDAS (PENDIENTES DE COMPROBANTE SAT) ---',
+      unmatchedHeaders.join(','),
+      ...unmatchedRows.map((r) => r.join(','))
+    ];
+
+    const csvContent = csvSections.join('\r\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Conciliacion_${entidad}_${periodo}.csv"`);
