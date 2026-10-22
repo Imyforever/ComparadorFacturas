@@ -67,9 +67,23 @@ const invoiceSchema = new mongoose.Schema(
     // Estado de conciliacion bancaria
     estadoPago: {
       type: String,
-      enum: ['Pagada', 'No Pagada', 'Cancelada', 'Pago Parcial', 'No Aplica'],
+      enum: ['Pagada', 'No Pagada', 'Cancelada', 'Pago Parcial', 'No Aplica', 'En Revision'],
       default: 'No Pagada',
       index: true
+    },
+    // Modificacion manual por el usuario
+    editadoManualmente: {
+      type: Boolean,
+      default: false
+    },
+    fechaEdicionManual: {
+      type: Date
+    },
+    // Observaciones o notas del usuario
+    observaciones: {
+      type: String,
+      default: '',
+      trim: true
     },
     // Datos del movimiento bancario que liquido la factura
     pagoAsociado: {

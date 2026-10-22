@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 2. Cargar datos del mes seleccionado desde MongoDB Atlas
   async function loadData() {
-    invoiceRows.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-muted);">Cargando facturas desde MongoDB Atlas...</td></tr>`;
+    invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">Cargando facturas desde MongoDB Atlas...</td></tr>`;
 
     try {
       const res = await fetch(`/api/reconciliation/data?periodo=${currentPeriodo}`);
@@ -117,10 +117,10 @@ document.addEventListener('DOMContentLoaded', () => {
         renderBankStatements(data.bankStatements || []);
         applyFilterAndRender();
       } else {
-        invoiceRows.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--error);">${data.message || 'Error cargando datos.'}</td></tr>`;
+        invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">${data.message || 'Error cargando datos.'}</td></tr>`;
       }
     } catch (err) {
-      invoiceRows.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--error);">Error de conexion con el servidor.</td></tr>`;
+      invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">Error de conexion con el servidor.</td></tr>`;
     }
   }
 
@@ -260,10 +260,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let filtered = cachedInvoices.filter((inv) => {
       if (currentFilter === 'pagadas' && inv.estadoPago !== 'Pagada') return false;
       if (currentFilter === 'no_pagadas' && inv.estadoPago !== 'No Pagada') return false;
+      if (currentFilter === 'egresos' && inv.efecto !== 'Egreso') return false;
       if (currentFilter === 'canceladas' && inv.estadoPago !== 'Cancelada') return false;
 
       if (term) {
-        const str = `${inv.uuid} ${inv.emisor} ${inv.rfcEmisor} ${inv.total}`.toLowerCase();
+        const str = `${inv.uuid} ${inv.emisor} ${inv.rfcEmisor} ${inv.total} ${inv.observaciones || ''}`.toLowerCase();
         return str.includes(term);
       }
       return true;
@@ -272,7 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showingCount.textContent = `Mostrando ${filtered.length} de ${cachedInvoices.length} facturas`;
 
     if (filtered.length === 0) {
-      invoiceRows.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-muted);">No se encontraron facturas con el criterio seleccionado.</td></tr>`;
+      invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">No se encontraron facturas con el criterio seleccionado.</td></tr>`;
       return;
     }
 
@@ -283,10 +284,16 @@ document.addEventListener('DOMContentLoaded', () => {
           badgeHtml = `<span class="badge-paid">Pagada</span>`;
         } else if (inv.estadoPago === 'No Pagada') {
           badgeHtml = `<span class="badge-unpaid">No Pagada</span>`;
+        } else if (inv.estadoPago === 'En Revision') {
+          badgeHtml = `<span class="badge-warning" style="background:#fef3c7; color:#b45309; padding:2px 6px; border-radius:2px; font-weight:600; font-size:11px;">En Revision</span>`;
         } else if (inv.estadoPago === 'Cancelada') {
           badgeHtml = `<span class="badge-canceled">Cancelada</span>`;
         } else {
           badgeHtml = `<span class="badge-na">${inv.estadoPago}</span>`;
+        }
+
+        if (inv.editadoManualmente) {
+          badgeHtml += `<br><span class="manual-tag">Manual</span>`;
         }
 
         let paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Sin pago registrado</span>';
@@ -302,6 +309,10 @@ document.addEventListener('DOMContentLoaded', () => {
           paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Comprobante cancelado en SAT</span>';
         }
 
+        const noteContent = inv.observaciones
+          ? `<span class="note-text" title="${inv.observaciones}">${inv.observaciones}</span>`
+          : `<span class="empty-note">Sin observaciones</span>`;
+
         return `
           <tr>
             <td style="text-align:center; font-weight:600; color:var(--text-muted); font-size:11.5px;">${index + 1}</td>
@@ -315,6 +326,12 @@ document.addEventListener('DOMContentLoaded', () => {
             <td style="font-size:11.5px;">${inv.efecto || 'Ingreso'}</td>
             <td style="text-align:center;">${badgeHtml}</td>
             <td>${paymentDetailHtml}</td>
+            <td>${noteContent}</td>
+            <td style="text-align:center;">
+              <button type="button" class="btn-action-small" onclick="openEditModal('${inv.uuid}')" title="Editar estado y agregar observaciones">
+                Editar
+              </button>
+            </td>
           </tr>
         `;
       })
@@ -402,6 +419,145 @@ document.addEventListener('DOMContentLoaded', () => {
   btnExportCsv.addEventListener('click', () => {
     window.location.href = `/api/reconciliation/export-csv?periodo=${currentPeriodo}`;
   });
+
+  // 14. Logica de Modal para Editar Estado y Observaciones de una Factura
+  let activeEditingUuid = null;
+  const editModal = document.getElementById('edit-invoice-modal');
+  const modalEmisor = document.getElementById('modal-emisor');
+  const modalUuid = document.getElementById('modal-uuid');
+  const modalTotal = document.getElementById('modal-total');
+  const modalFecha = document.getElementById('modal-fecha');
+  const modalEfecto = document.getElementById('modal-efecto');
+  const modalEstadoPago = document.getElementById('modal-estado-pago');
+  const modalObservaciones = document.getElementById('modal-observaciones');
+  const modalStatus = document.getElementById('modal-status');
+  const btnResetAuto = document.getElementById('btn-reset-auto');
+  const btnSaveInvoice = document.getElementById('btn-save-invoice');
+
+  window.openEditModal = (uuid) => {
+    const inv = cachedInvoices.find((i) => i.uuid === uuid);
+    if (!inv) return;
+
+    activeEditingUuid = uuid;
+    modalEmisor.textContent = inv.emisor || 'Sin emisor registrado';
+    modalUuid.textContent = inv.uuid;
+    modalTotal.textContent = formatMoney(inv.total);
+    modalFecha.textContent = inv.fechaEmision ? inv.fechaEmision.split('T')[0] : '-';
+    modalEfecto.textContent = inv.efecto || 'Ingreso';
+    modalEstadoPago.value = inv.estadoPago || 'No Pagada';
+    modalObservaciones.value = inv.observaciones || '';
+    modalStatus.innerHTML = '';
+
+    if (inv.editadoManualmente) {
+      btnResetAuto.style.display = 'inline-block';
+    } else {
+      btnResetAuto.style.display = 'none';
+    }
+
+    editModal.classList.remove('hidden');
+    setTimeout(() => {
+      modalObservaciones.focus();
+    }, 50);
+  };
+
+  window.closeEditModal = () => {
+    activeEditingUuid = null;
+    modalStatus.innerHTML = '';
+    editModal.classList.add('hidden');
+  };
+
+  window.saveInvoiceEdit = async () => {
+    if (!activeEditingUuid) return;
+
+    const newEstado = modalEstadoPago.value;
+    const newObservaciones = modalObservaciones.value.trim();
+
+    modalStatus.innerHTML = '<span style="color:var(--info);">Guardando modificacion...</span>';
+    btnSaveInvoice.disabled = true;
+
+    try {
+      const res = await fetch(`/api/reconciliation/invoice/${activeEditingUuid}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          estadoPago: newEstado,
+          observaciones: newObservaciones
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Actualizar datos en memoria
+        const target = cachedInvoices.find((i) => i.uuid === activeEditingUuid);
+        if (target) {
+          target.estadoPago = newEstado;
+          target.observaciones = newObservaciones;
+          target.editadoManualmente = true;
+          target.fechaEdicionManual = new Date();
+        }
+
+        applyFilterAndRender();
+        closeEditModal();
+        // Sincronizar totales de resumen con backend
+        loadData();
+      } else {
+        modalStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al guardar.'}</span>`;
+      }
+    } catch (err) {
+      modalStatus.innerHTML = `<span style="color:var(--error);">Error de conexion con el servidor.</span>`;
+    } finally {
+      btnSaveInvoice.disabled = false;
+    }
+  };
+
+  window.resetInvoiceAuto = async () => {
+    if (!activeEditingUuid) return;
+
+    if (!confirm('Desea restablecer esta factura al calculo automatico de conciliacion con los estados de cuenta bancarios?')) {
+      return;
+    }
+
+    modalStatus.innerHTML = '<span style="color:var(--info);">Restableciendo a automatico...</span>';
+    btnResetAuto.disabled = true;
+
+    try {
+      const res = await fetch(`/api/reconciliation/invoice/${activeEditingUuid}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resetAuto: true,
+          observaciones: modalObservaciones.value.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeEditModal();
+        loadData();
+      } else {
+        modalStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al restablecer.'}</span>`;
+      }
+    } catch (err) {
+      modalStatus.innerHTML = `<span style="color:var(--error);">Error de conexion al restablecer.</span>`;
+    } finally {
+      btnResetAuto.disabled = false;
+    }
+  };
+
+  // Eventos de teclado y clic fuera del modal
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && editModal && !editModal.classList.contains('hidden')) {
+      closeEditModal();
+    }
+  });
+
+  if (editModal) {
+    editModal.addEventListener('click', (e) => {
+      if (e.target === editModal) {
+        closeEditModal();
+      }
+    });
+  }
 
   // Carga inicial
   loadData();

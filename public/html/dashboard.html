@@ -1,16 +1,18 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Conciliacion de Facturas - Comparador</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
+
 <body class="dashboard-body">
 
   <div class="dashboard-container">
     <div class="auth-card" style="max-width: 100%;">
-      
+
       <!-- Barra Superior -->
       <div class="dash-topbar">
         <div class="topbar-header">
@@ -21,7 +23,7 @@
             Usuario: <strong id="user-name">admin</strong>
           </span>
         </div>
-        
+
         <div class="period-controls">
           <label for="period-select" style="font-size: 12px; font-weight: 600;">Mes:</label>
           <select id="period-select" class="select-period"></select>
@@ -37,7 +39,7 @@
         <div class="panel-header">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
-              1. Facturas Recibidas (SAT Consulta CFDI)
+              1. Facturas Recibidas
             </h3>
             <span style="font-size: 11.5px; color: var(--text-muted);">
               Unicamente se permite 1 archivo de facturas por mes (bloqueo automatico tras la carga)
@@ -45,7 +47,8 @@
           </div>
           <div class="upload-card-actions">
             <input type="file" id="cfdi-file" accept=".pdf" style="display:none;">
-            <button type="button" class="btn-action btn-action-primary" id="btn-select-cfdi" onclick="document.getElementById('cfdi-file').click()">
+            <button type="button" class="btn-action btn-action-primary" id="btn-select-cfdi"
+              onclick="document.getElementById('cfdi-file').click()">
               Subir Facturas del SAT
             </button>
             <button type="button" class="btn-action" id="btn-replace-cfdi" style="display:none; color:var(--error);">
@@ -69,7 +72,8 @@
           </div>
           <div class="upload-card-actions">
             <input type="file" id="bank-files" accept=".pdf" multiple style="display:none;">
-            <button type="button" class="btn-action btn-action-primary" onclick="document.getElementById('bank-files').click()">
+            <button type="button" class="btn-action btn-action-primary"
+              onclick="document.getElementById('bank-files').click()">
               + Agregar Mas Estados de Cuenta
             </button>
           </div>
@@ -115,10 +119,11 @@
           <button type="button" class="filter-btn active" data-filter="all">Todas</button>
           <button type="button" class="filter-btn" data-filter="pagadas">Pagadas</button>
           <button type="button" class="filter-btn" data-filter="no_pagadas">No Pagadas (Pendientes)</button>
+          <button type="button" class="filter-btn" data-filter="egresos">Egresos (Notas de Credito)</button>
           <button type="button" class="filter-btn" data-filter="canceladas">Canceladas</button>
         </div>
 
-        <input type="text" id="search-input" class="search-input" placeholder="Buscar por RFC, emisor o folio...">
+        <input type="text" id="search-input" class="search-input" placeholder="Buscar por RFC, emisor, folio u observacion...">
       </div>
 
       <!-- Tabla de Conciliacion de Facturas con Enumeracion -->
@@ -133,13 +138,15 @@
               <th style="width: 95px;">Fecha</th>
               <th style="width: 105px; text-align: right;">Total</th>
               <th style="width: 85px;">Efecto</th>
-              <th style="width: 95px; text-align: center;">Estado Pago</th>
-              <th>Evidencia / Movimiento Bancario</th>
+              <th style="width: 100px; text-align: center;">Estado Pago</th>
+              <th style="width: 220px;">Evidencia Bancaria</th>
+              <th style="width: 180px;">Observaciones</th>
+              <th style="width: 80px; text-align: center;">Accion</th>
             </tr>
           </thead>
           <tbody id="invoice-rows">
             <tr>
-              <td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">
+              <td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">
                 Cargando datos de conciliacion...
               </td>
             </tr>
@@ -148,10 +155,61 @@
       </div>
 
       <!-- Pie Informativo -->
-      <div style="margin-top: 16px; font-size: 11.5px; color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+      <div
+        style="margin-top: 16px; font-size: 11.5px; color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
         <span id="showing-count">Mostrando 0 facturas</span>
       </div>
 
+    </div>
+  </div>
+
+  <!-- Modal para Editar Estado y Observaciones de una Factura -->
+  <div id="edit-invoice-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Editar Estado y Observaciones de Factura</h3>
+        <button type="button" class="btn-close-modal" onclick="closeEditModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-info-box">
+          <div><strong>Proveedor:</strong> <span id="modal-emisor">-</span></div>
+          <div style="margin-top:2px;"><strong>Folio UUID:</strong> <code id="modal-uuid" style="font-size:11px;">-</code></div>
+          <div style="display:flex; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
+            <span><strong>Total:</strong> <span id="modal-total" style="font-weight:700; color:var(--text-main);">$0.00</span></span>
+            <span><strong>Fecha:</strong> <span id="modal-fecha">-</span></span>
+            <span><strong>Efecto:</strong> <span id="modal-efecto">-</span></span>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label for="modal-estado-pago" class="form-label">Estado de Pago:</label>
+          <select id="modal-estado-pago" class="form-input">
+            <option value="Pagada">Pagada</option>
+            <option value="No Pagada">No Pagada</option>
+            <option value="En Revision">En Revision</option>
+            <option value="Cancelada">Cancelada</option>
+            <option value="No Aplica">No Aplica</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="modal-observaciones" class="form-label">Observaciones:</label>
+          <textarea id="modal-observaciones" class="form-input modal-textarea" rows="3" placeholder="Ejemplo: Pagado en efectivo en sucursal, descuento acordado, pago con cheque 492, aclaracion pendiente..."></textarea>
+        </div>
+
+        <span id="modal-status" class="status-msg"></span>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-action" id="btn-reset-auto" onclick="resetInvoiceAuto()" style="color:var(--text-muted); font-size:11.5px;" title="Revertir cambios manuales y usar conciliacion bancaria automatica">
+          Restablecer a Automatico
+        </button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn-action" onclick="closeEditModal()">Cancelar</button>
+          <button type="button" class="btn-action btn-action-primary" id="btn-save-invoice" onclick="saveInvoiceEdit()">
+            Guardar Cambios
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 

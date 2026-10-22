@@ -31,17 +31,19 @@ const runReconciliationForPeriod = async (periodo) => {
 
   const { summary, reconciledInvoices } = reconcile(invoices, bankMovements);
 
-  const bulkOps = reconciledInvoices.map((inv) => ({
-    updateOne: {
-      filter: { uuid: inv.uuid },
-      update: {
-        $set: {
-          estadoPago: inv.estadoPago,
-          pagoAsociado: inv.pagoAsociado
+  const bulkOps = reconciledInvoices
+    .filter((inv) => !inv.editadoManualmente)
+    .map((inv) => ({
+      updateOne: {
+        filter: { uuid: inv.uuid },
+        update: {
+          $set: {
+            estadoPago: inv.estadoPago,
+            pagoAsociado: inv.pagoAsociado
+          }
         }
       }
-    }
-  }));
+    }));
 
   if (bulkOps.length > 0) {
     await Invoice.bulkWrite(bulkOps);
@@ -72,6 +74,8 @@ router.get('/data', async (req, res) => {
       query.estadoPago = 'Pagada';
     } else if (filter === 'no_pagadas') {
       query.estadoPago = 'No Pagada';
+    } else if (filter === 'egresos') {
+      query.efecto = 'Egreso';
     } else if (filter === 'canceladas') {
       query.estadoPago = 'Cancelada';
     }
@@ -81,12 +85,14 @@ router.get('/data', async (req, res) => {
     const allInvoices = await Invoice.find({ periodo }).lean();
     const pagadas = allInvoices.filter((i) => i.estadoPago === 'Pagada');
     const noPagadas = allInvoices.filter((i) => i.estadoPago === 'No Pagada');
+    const egresos = allInvoices.filter((i) => i.efecto === 'Egreso');
     const canceladas = allInvoices.filter((i) => i.estadoPago === 'Cancelada');
 
     const totalFacturas = allInvoices.length;
     const montoTotal = allInvoices.reduce((s, i) => s + (i.total || 0), 0);
     const montoPagado = pagadas.reduce((s, i) => s + (i.total || 0), 0);
     const montoNoPagado = noPagadas.reduce((s, i) => s + (i.total || 0), 0);
+    const montoEgresos = egresos.reduce((s, i) => s + (i.total || 0), 0);
     const montoCancelado = canceladas.reduce((s, i) => s + (i.total || 0), 0);
 
     const bankMovementsCount = await BankMovement.countDocuments({ periodo, tipo: 'Retiro' });
@@ -105,6 +111,8 @@ router.get('/data', async (req, res) => {
         montoPagado,
         noPagadasCount: noPagadas.length,
         montoNoPagado,
+        egresosCount: egresos.length,
+        montoEgresos,
         canceladasCount: canceladas.length,
         montoCancelado,
         bankMovementsCount
@@ -444,7 +452,60 @@ router.post('/process-local-september', async (req, res) => {
   }
 });
 
-// 8. Exportar reporte en CSV
+// 8. Actualizar manualmente estado de pago y observaciones de una factura
+router.patch('/invoice/:uuid', async (req, res) => {
+  try {
+    const { uuid } = req.params;
+    const { estadoPago, observaciones, resetAuto } = req.body;
+
+    const invoice = await Invoice.findOne({ uuid });
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: 'Factura no encontrada.' });
+    }
+
+    if (resetAuto) {
+      // Revertir a calculo automatico
+      invoice.editadoManualmente = false;
+      if (observaciones !== undefined) {
+        invoice.observaciones = observaciones;
+      }
+      await invoice.save();
+
+      // Recalcular conciliacion para este periodo
+      await runReconciliationForPeriod(invoice.periodo);
+      const updated = await Invoice.findOne({ uuid }).lean();
+
+      return res.json({
+        success: true,
+        message: 'Factura restablecida al calculo automatico.',
+        invoice: updated
+      });
+    }
+
+    // Actualizacion manual
+    if (estadoPago) {
+      invoice.estadoPago = estadoPago;
+      invoice.editadoManualmente = true;
+      invoice.fechaEdicionManual = new Date();
+    }
+    if (observaciones !== undefined) {
+      invoice.observaciones = observaciones;
+    }
+
+    await invoice.save();
+
+    return res.json({
+      success: true,
+      message: 'Factura actualizada exitosamente.',
+      invoice
+    });
+  } catch (err) {
+    console.error('Error actualizando factura:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 9. Exportar reporte en CSV
 router.get('/export-csv', async (req, res) => {
   try {
     const periodo = req.query.periodo || '2026-09';
@@ -460,9 +521,11 @@ router.get('/export-csv', async (req, res) => {
       'Estado SAT',
       'Efecto',
       'Estado de Pago',
+      'Modificacion Manual',
       'Fecha Pago Banco',
       'Monto Pagado',
-      'Concepto Banco'
+      'Concepto Banco',
+      'Observaciones'
     ];
 
     const rows = invoices.map((inv, idx) => [
@@ -475,9 +538,11 @@ router.get('/export-csv', async (req, res) => {
       `"${inv.estadoSat}"`,
       `"${inv.efecto}"`,
       `"${inv.estadoPago}"`,
+      `"${inv.editadoManualmente ? 'Si' : 'No'}"`,
       `"${inv.pagoAsociado?.fechaPago || ''}"`,
       inv.pagoAsociado?.montoRetiro ? inv.pagoAsociado.montoRetiro.toFixed(2) : '',
-      `"${(inv.pagoAsociado?.conceptoBanco || '').replace(/"/g, '""')}"`
+      `"${(inv.pagoAsociado?.conceptoBanco || '').replace(/"/g, '""')}"`,
+      `"${(inv.observaciones || '').replace(/"/g, '""')}"`
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
