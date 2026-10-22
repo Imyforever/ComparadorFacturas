@@ -21,26 +21,27 @@ const upload = multer({
  * Helper para asegurar que existan las pestanias por defecto y migrar registros anteriores
  */
 const ensureDefaultTabs = async (periodo) => {
-  // 1. Asignar 'Personal' a cualquier documento previo que no tenga entidad
-  await Invoice.updateMany({ entidad: { $exists: false } }, { $set: { entidad: 'Personal' } });
-  await BankMovement.updateMany({ entidad: { $exists: false } }, { $set: { entidad: 'Personal' } });
-  await BankStatementFile.updateMany({ entidad: { $exists: false } }, { $set: { entidad: 'Personal' } });
+  // Garantizar que la pestania 'Personal' exista en AccountTab para este mes
+  await AccountTab.findOneAndUpdate(
+    { periodo, nombre: 'Personal' },
+    { $setOnInsert: { periodo, nombre: 'Personal' } },
+    { upsert: true }
+  );
 
-  // 2. Garantizar que la pestania 'Personal' exista en AccountTab para este mes
-  const personalTab = await AccountTab.findOne({ periodo, nombre: 'Personal' });
-  if (!personalTab) {
-    await AccountTab.create({ periodo, nombre: 'Personal' });
-  }
-
-  // 3. Registrar cualquier entidad existente en facturas que aun no este en AccountTab
+  // Registrar cualquier entidad existente en facturas que aun no este en AccountTab
   const distinctEntities = await Invoice.distinct('entidad', { periodo });
-  for (const ent of distinctEntities) {
-    if (ent && typeof ent === 'string') {
-      await AccountTab.findOneAndUpdate(
-        { periodo, nombre: ent },
-        { $setOnInsert: { periodo, nombre: ent } },
-        { upsert: true }
-      );
+  if (distinctEntities.length > 0) {
+    const tabOps = distinctEntities
+      .filter((ent) => ent && typeof ent === 'string')
+      .map((ent) => ({
+        updateOne: {
+          filter: { periodo, nombre: ent },
+          update: { $setOnInsert: { periodo, nombre: ent } },
+          upsert: true
+        }
+      }));
+    if (tabOps.length > 0) {
+      await AccountTab.bulkWrite(tabOps);
     }
   }
 };
@@ -274,49 +275,72 @@ router.get('/data', async (req, res) => {
 
     await ensureDefaultTabs(periodo);
 
-    const query = { periodo, entidad };
-    if (filter === 'pagadas') {
-      query.estadoPago = 'Pagada';
-    } else if (filter === 'no_pagadas') {
-      query.estadoPago = 'No Pagada';
-    } else if (filter === 'egresos') {
-      query.efecto = 'Egreso';
-    } else if (filter === 'canceladas') {
-      query.estadoPago = 'Cancelada';
+    // Consultas concurrentes en paralelo para máxima velocidad
+    const [allInvoices, unmatchedBankMovements, bankMovementsCount, bankStatements] = await Promise.all([
+      Invoice.find({ periodo, entidad }).sort({ fechaEmision: 1 }).lean(),
+      BankMovement.find({
+        periodo,
+        entidad,
+        tipo: 'Retiro',
+        conciliado: false
+      }).sort({ fechaNormalizada: -1, fecha: -1 }).lean(),
+      BankMovement.countDocuments({ periodo, entidad, tipo: 'Retiro' }),
+      BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean()
+    ]);
+
+    let pagadasCount = 0;
+    let montoPagado = 0;
+    let noPagadasCount = 0;
+    let montoNoPagado = 0;
+    let egresosCount = 0;
+    let montoEgresos = 0;
+    let canceladasCount = 0;
+    let montoCancelado = 0;
+    let montoTotal = 0;
+
+    const invoices = [];
+
+    for (let i = 0; i < allInvoices.length; i++) {
+      const inv = allInvoices[i];
+      const tot = inv.total || 0;
+      montoTotal += tot;
+
+      if (inv.estadoPago === 'Pagada') {
+        pagadasCount++;
+        montoPagado += tot;
+      } else if (inv.estadoPago === 'No Pagada') {
+        noPagadasCount++;
+        montoNoPagado += tot;
+      } else if (inv.estadoPago === 'Cancelada') {
+        canceladasCount++;
+        montoCancelado += tot;
+      }
+
+      if (inv.efecto === 'Egreso') {
+        egresosCount++;
+        montoEgresos += tot;
+      }
+
+      // Filtrado para la lista mostrada
+      if (filter === 'all') {
+        invoices.push(inv);
+      } else if (filter === 'pagadas' && inv.estadoPago === 'Pagada') {
+        invoices.push(inv);
+      } else if (filter === 'no_pagadas' && inv.estadoPago === 'No Pagada') {
+        invoices.push(inv);
+      } else if (filter === 'egresos' && inv.efecto === 'Egreso') {
+        invoices.push(inv);
+      } else if (filter === 'canceladas' && inv.estadoPago === 'Cancelada') {
+        invoices.push(inv);
+      }
     }
 
-    const invoices = await Invoice.find(query).sort({ fechaEmision: 1 }).lean();
-
-    const allInvoices = await Invoice.find({ periodo, entidad }).lean();
-    const pagadas = allInvoices.filter((i) => i.estadoPago === 'Pagada');
-    const noPagadas = allInvoices.filter((i) => i.estadoPago === 'No Pagada');
-    const egresos = allInvoices.filter((i) => i.efecto === 'Egreso');
-    const canceladas = allInvoices.filter((i) => i.estadoPago === 'Cancelada');
-
     const totalFacturas = allInvoices.length;
-    const montoTotal = allInvoices.reduce((s, i) => s + (i.total || 0), 0);
-    const montoPagado = pagadas.reduce((s, i) => s + (i.total || 0), 0);
-    const montoNoPagado = noPagadas.reduce((s, i) => s + (i.total || 0), 0);
-    const montoEgresos = egresos.reduce((s, i) => s + (i.total || 0), 0);
-    const montoCancelado = canceladas.reduce((s, i) => s + (i.total || 0), 0);
-
-    const bankMovementsCount = await BankMovement.countDocuments({ periodo, entidad, tipo: 'Retiro' });
-
-    // Movimientos bancarios de retiro que NO se encuentran asociados a ninguna factura recibida
-    const unmatchedBankMovements = await BankMovement.find({
-      periodo,
-      entidad,
-      tipo: 'Retiro',
-      conciliado: false
-    })
-      .sort({ fechaNormalizada: -1, fecha: -1 })
-      .lean();
-
     const unmatchedBankCount = unmatchedBankMovements.length;
-    const unmatchedBankMonto = unmatchedBankMovements.reduce((acc, m) => acc + (m.monto || 0), 0);
-
-    // Consultar lista de estados de cuenta bancarios registrados para el mes y la entidad
-    const bankStatements = await BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean();
+    let unmatchedBankMonto = 0;
+    for (let i = 0; i < unmatchedBankMovements.length; i++) {
+      unmatchedBankMonto += unmatchedBankMovements[i].monto || 0;
+    }
 
     return res.json({
       success: true,
@@ -326,13 +350,13 @@ router.get('/data', async (req, res) => {
       summary: {
         totalFacturas,
         montoTotal,
-        pagadasCount: pagadas.length,
+        pagadasCount,
         montoPagado,
-        noPagadasCount: noPagadas.length,
+        noPagadasCount,
         montoNoPagado,
-        egresosCount: egresos.length,
+        egresosCount,
         montoEgresos,
-        canceladasCount: canceladas.length,
+        canceladasCount,
         montoCancelado,
         bankMovementsCount,
         unmatchedBankCount,

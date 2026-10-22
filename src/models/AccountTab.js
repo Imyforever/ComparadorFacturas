@@ -25,4 +25,4 @@ const accountTabSchema = new mongoose.Schema(
 // Asegura que no existan pestanias duplicadas con el mismo nombre en el mismo mes
 accountTabSchema.index({ periodo: 1, nombre: 1 }, { unique: true });
 
-module.exports = mongoose.model('AccountTab', accountTabSchema);
+module.exports = mongoose.models.AccountTab || mongoose.model('AccountTab', accountTabSchema);

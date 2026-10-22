@@ -17,7 +17,6 @@ const invoiceSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
       uppercase: true,
       trim: true
     },
@@ -109,5 +108,9 @@ const invoiceSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+// Consultas principales: por mes + pestania
+invoiceSchema.index({ periodo: 1, entidad: 1, fechaEmision: 1 });
+invoiceSchema.index({ 'pagoAsociado.movimientoId': 1 });
 
 module.exports = mongoose.models.Invoice || mongoose.model('Invoice', invoiceSchema);

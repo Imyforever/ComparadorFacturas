@@ -1,4 +1,4 @@
-const { PDFParse } = require('pdf-parse');
+const { extractPdfText } = require('./pdfText');
 
 /**
  * Parsea un archivo PDF de Consulta CFDI del SAT
@@ -6,9 +6,7 @@ const { PDFParse } = require('pdf-parse');
  * @returns {Promise<{invoices: Array<Object>, detectedPeriod: string}>} Facturas parseadas y mes detectado
  */
 const parseCfdiReport = async (pdfBuffer) => {
-  const parser = new PDFParse({ data: pdfBuffer });
-  const result = await parser.getText();
-  const text = result.text;
+  const text = await extractPdfText(pdfBuffer);
 
   const blocks = text.split(/Folio Fiscal:\s*/i).filter((b) => b.trim().length > 0);
   const invoices = [];

@@ -58,6 +58,9 @@ const reconcile = (invoices, bankTransactions) => {
   const withdrawals = bankTransactions.filter((tx) => tx.tipo === 'Retiro');
   const usedWithdrawalIds = new Set();
 
+  // Precalcular concepto normalizado de cada retiro (se usa en desempates)
+  const normConcepts = withdrawals.map((tx) => normalizeText(tx.concepto));
+
   let pagadasCount = 0;
   let montoPagado = 0;
   let noPagadasCount = 0;
@@ -87,10 +90,12 @@ const reconcile = (invoices, bankTransactions) => {
     }
 
     // 3. Buscar movimientos bancarios con monto identico (tolerancia de 5 centavos)
-    const matchingCandidates = withdrawals.filter((tx, idx) => {
-      if (usedWithdrawalIds.has(idx)) return false;
+    const candidateIdxs = [];
+    for (let idx = 0; idx < withdrawals.length; idx++) {
+      if (usedWithdrawalIds.has(idx)) continue;
+      const tx = withdrawals[idx];
       const diff = Math.abs(tx.monto - inv.total);
-      if (diff >= 0.05) return false;
+      if (diff >= 0.05) continue;
 
       // Si no es monto exacto, y el RFC y nombre del proveedor discrepan totalmente, no asociar
       if (
@@ -100,51 +105,47 @@ const reconcile = (invoices, bankTransactions) => {
         tx.rfcDetectado !== inv.rfcEmisor &&
         !matchVendorName(inv.emisor, tx.concepto)
       ) {
-        return false;
+        continue;
       }
 
-      return true;
-    });
+      candidateIdxs.push(idx);
+    }
 
-    let bestMatch = null;
     let bestMatchIndex = -1;
 
-    if (matchingCandidates.length === 1) {
+    if (candidateIdxs.length === 1) {
       // Coincidencia unica por monto
-      bestMatch = matchingCandidates[0];
-      bestMatchIndex = withdrawals.indexOf(bestMatch);
-    } else if (matchingCandidates.length > 1) {
+      bestMatchIndex = candidateIdxs[0];
+    } else if (candidateIdxs.length > 1) {
       // Si hay varios retiros con el mismo monto, desempatar por RFC o nombre
-      for (const candidate of matchingCandidates) {
-        const candidateIdx = withdrawals.indexOf(candidate);
-        const normConcept = normalizeText(candidate.concepto);
+      const normRfc = normalizeText(inv.rfcEmisor);
+      for (const idx of candidateIdxs) {
+        const candidate = withdrawals[idx];
 
         // A. Coincidencia por RFC
         if (
           (candidate.rfcDetectado && candidate.rfcDetectado === inv.rfcEmisor) ||
-          normConcept.includes(normalizeText(inv.rfcEmisor))
+          normConcepts[idx].includes(normRfc)
         ) {
-          bestMatch = candidate;
-          bestMatchIndex = candidateIdx;
+          bestMatchIndex = idx;
           break;
         }
 
         // B. Coincidencia por nombre de proveedor
         if (matchVendorName(inv.emisor, candidate.concepto)) {
-          bestMatch = candidate;
-          bestMatchIndex = candidateIdx;
+          bestMatchIndex = idx;
           break;
         }
       }
 
       // Si ninguno coincide por nombre, tomar el primero disponible
-      if (!bestMatch) {
-        bestMatch = matchingCandidates[0];
-        bestMatchIndex = withdrawals.indexOf(bestMatch);
+      if (bestMatchIndex === -1) {
+        bestMatchIndex = candidateIdxs[0];
       }
     }
 
-    if (bestMatch && bestMatchIndex !== -1) {
+    if (bestMatchIndex !== -1) {
+      const bestMatch = withdrawals[bestMatchIndex];
       usedWithdrawalIds.add(bestMatchIndex);
       pagadasCount++;
       montoPagado += inv.total;
@@ -195,6 +196,8 @@ const reconcile = (invoices, bankTransactions) => {
     unmatchedWithdrawals
   };
 };
+
+
 
 module.exports = {
   reconcile

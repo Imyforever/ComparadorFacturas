@@ -67,6 +67,14 @@ const bankMovementSchema = new mongoose.Schema(
     archivoOrigen: {
       type: String
     },
+    // Mes al que se subio el archivo de origen (un estado de cuenta puede abarcar 2 meses)
+    archivoPeriodo: {
+      type: String
+    },
+    // Identificador estable del movimiento para evitar duplicados al re-subir archivos
+    huella: {
+      type: String
+    },
     observaciones: {
       type: String,
       default: ''
@@ -80,5 +88,9 @@ const bankMovementSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+bankMovementSchema.index({ periodo: 1, entidad: 1, tipo: 1, conciliado: 1 });
+bankMovementSchema.index({ entidad: 1, huella: 1 });
+bankMovementSchema.index({ entidad: 1, archivoOrigen: 1 });
 
 module.exports = mongoose.models.BankMovement || mongoose.model('BankMovement', bankMovementSchema);

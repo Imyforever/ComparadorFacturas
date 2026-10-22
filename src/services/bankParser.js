@@ -1,4 +1,4 @@
-const { PDFParse } = require('pdf-parse');
+const { extractPdfText } = require('./pdfText');
 
 const MONTH_MAP = {
   ENE: '01',
@@ -631,9 +631,7 @@ const parseBBVACreditOrCardStatement = (text, defaultYear = '2026') => {
  * @returns {Promise<{movements: Array<Object>, detectedPeriods: Array<string>, banco?: string, cuenta?: string}>}
  */
 const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
-  const parser = new PDFParse({ data: pdfBuffer });
-  const result = await parser.getText();
-  const text = result.text;
+  const text = await extractPdfText(pdfBuffer);
 
   // 1. Deteccion de BBVA Detalle de Movimientos (Portal Web / Cash Management)
   const isBBVADetalle =
