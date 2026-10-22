@@ -801,6 +801,135 @@ body.login-page {
   color: var(--text-main);
 }
 
+/* ================= BARRA DE PESTANIAS / CUENTAS POR MES (EXCEL TABS) ================= */
+.entity-tabs-panel {
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.entity-tabs-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.entity-tabs-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 0px;
+  scrollbar-width: thin;
+}
+
+.entity-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px 4px 0 0;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  top: 1px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.entity-tab:hover {
+  background: #e5e7eb;
+  color: var(--text-main);
+}
+
+.entity-tab.active {
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 700;
+  border-top: 3px solid var(--primary);
+  border-bottom: 1px solid #ffffff;
+  z-index: 2;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.entity-tab .tab-badge {
+  background: #e5e7eb;
+  color: #4b5563;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  line-height: 1.3;
+}
+
+.entity-tab.active .tab-badge {
+  background: #e8f5e9;
+  color: var(--primary);
+}
+
+.tab-actions-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.btn-tab-icon {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-tab-icon:hover {
+  background: #e5e7eb;
+  color: var(--text-main);
+}
+
+.btn-tab-icon-delete:hover {
+  background: #fee2e2;
+  color: var(--error);
+}
+
+.entity-tabs-actions {
+  margin-bottom: 4px;
+}
+
+.btn-add-tab {
+  background: #ffffff;
+  border: 1px dashed var(--primary);
+  color: var(--primary);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-add-tab:hover {
+  background: #e8f5e9;
+  border-style: solid;
+}
+
 /* ================= MODAL DE EDICION MANUAL Y OBSERVACIONES ================= */
 .modal-backdrop {
   position: fixed;

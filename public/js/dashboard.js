@@ -59,8 +59,24 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   let currentPeriodo = '2026-09';
+  let currentEntidad = 'Personal';
+  let cachedTabs = [];
   let currentFilter = 'all';
   let cachedInvoices = [];
+
+  // Elementos de Pestanias / Cuentas
+  const entityTabsList = document.getElementById('entity-tabs-list');
+  const createTabModal = document.getElementById('create-tab-modal');
+  const inputNewTabName = document.getElementById('input-new-tab-name');
+  const createTabStatus = document.getElementById('create-tab-status');
+  const btnSubmitCreateTab = document.getElementById('btn-submit-create-tab');
+  const modalCreateTabPeriod = document.getElementById('modal-create-tab-period');
+
+  const renameTabModal = document.getElementById('rename-tab-modal');
+  const inputRenameTabName = document.getElementById('input-rename-tab-name');
+  const renameTabStatus = document.getElementById('rename-tab-status');
+  const btnSubmitRenameTab = document.getElementById('btn-submit-rename-tab');
+  const modalRenameCurrentName = document.getElementById('modal-rename-current-name');
 
   // 1. Generar automaticamente todos los meses anteriores al actual
   function populateMonthSelector() {
@@ -91,10 +107,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   populateMonthSelector();
 
-  periodSelect.addEventListener('change', () => {
+  periodSelect.addEventListener('change', async () => {
     currentPeriodo = periodSelect.value;
     cfdiStatus.innerHTML = '';
     bankStatus.innerHTML = '';
+    await loadTabs();
     loadData();
   });
 
@@ -102,12 +119,66 @@ document.addEventListener('DOMContentLoaded', () => {
   const formatMoney = (val) =>
     '$' + Number(val || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // 2. Cargar datos del mes seleccionado desde MongoDB Atlas
+  // 2. Gestion de Pestanias / Cuentas por Mes (Personal, Empresa, etc.)
+  async function loadTabs() {
+    try {
+      const res = await fetch(`/api/reconciliation/tabs?periodo=${currentPeriodo}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.tabs)) {
+        cachedTabs = data.tabs;
+        if (!cachedTabs.some((t) => t.nombre === currentEntidad)) {
+          currentEntidad = cachedTabs[0]?.nombre || 'Personal';
+        }
+        renderTabs();
+      }
+    } catch (err) {
+      console.error('Error cargando pestanias:', err);
+    }
+  }
+
+  function renderTabs() {
+    if (!entityTabsList) return;
+
+    entityTabsList.innerHTML = cachedTabs
+      .map((tab) => {
+        const isActive = tab.nombre === currentEntidad;
+        const canDelete = cachedTabs.length > 1;
+
+        return `
+          <div class="entity-tab ${isActive ? 'active' : ''}" onclick="switchEntityTab('${tab.nombre}')">
+            <span class="tab-label">${tab.nombre}</span>
+            <span class="tab-badge" title="${tab.facturasCount || 0} facturas en esta pestania">${tab.facturasCount || 0}</span>
+            <div class="tab-actions-group">
+              <button type="button" class="btn-tab-icon" onclick="event.stopPropagation(); openRenameTabModal('${tab.nombre}')" title="Renombrar esta pestania">
+                Editar
+              </button>
+              ${
+                canDelete
+                  ? `<button type="button" class="btn-tab-icon btn-tab-icon-delete" onclick="event.stopPropagation(); deleteEntityTab('${tab.nombre}')" title="Eliminar pestania">&times;</button>`
+                  : ''
+              }
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  window.switchEntityTab = (tabName) => {
+    if (currentEntidad === tabName) return;
+    currentEntidad = tabName;
+    renderTabs();
+    cfdiStatus.innerHTML = '';
+    bankStatus.innerHTML = '';
+    loadData();
+  };
+
+  // 3. Cargar datos del mes y pestania seleccionada desde MongoDB Atlas
   async function loadData() {
-    invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">Cargando facturas desde MongoDB Atlas...</td></tr>`;
+    invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">Cargando facturas de "${currentEntidad}" desde MongoDB Atlas...</td></tr>`;
 
     try {
-      const res = await fetch(`/api/reconciliation/data?periodo=${currentPeriodo}`);
+      const res = await fetch(`/api/reconciliation/data?periodo=${currentPeriodo}&entidad=${encodeURIComponent(currentEntidad)}`);
       const data = await res.json();
 
       if (data.success) {
@@ -116,6 +187,13 @@ document.addEventListener('DOMContentLoaded', () => {
         updateCfdiLockState(data.hasCfdiFile, data.summary.totalFacturas);
         renderBankStatements(data.bankStatements || []);
         applyFilterAndRender();
+
+        // Actualizar contador de la pestania activa
+        const tabObj = cachedTabs.find((t) => t.nombre === currentEntidad);
+        if (tabObj && tabObj.facturasCount !== data.summary.totalFacturas) {
+          tabObj.facturasCount = data.summary.totalFacturas;
+          renderTabs();
+        }
       } else {
         invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">${data.message || 'Error cargando datos.'}</td></tr>`;
       }
@@ -124,33 +202,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 3. Bloqueo de subida si ya existe archivo de facturas del mes
+  // 4. Bloqueo de subida si ya existe archivo de facturas del mes y pestania
   function updateCfdiLockState(hasFile, totalInvoices) {
     if (hasFile) {
       btnSelectCfdi.disabled = true;
       btnSelectCfdi.textContent = `Facturas cargadas (${totalInvoices} comprobantes)`;
       btnReplaceCfdi.style.display = 'inline-block';
-      cfdiStatus.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">Solo se permite 1 archivo de facturas por mes. Bloqueado.</span>`;
+      cfdiStatus.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">Solo se permite 1 archivo de facturas para "${currentEntidad}". Bloqueado.</span>`;
     } else {
       btnSelectCfdi.disabled = false;
-      btnSelectCfdi.textContent = 'Subir Facturas del SAT';
+      btnSelectCfdi.textContent = `Subir Facturas del SAT (${currentEntidad})`;
       btnReplaceCfdi.style.display = 'none';
       cfdiStatus.innerHTML = '';
     }
   }
 
-  // 4. Reemplazar archivo de facturas existente
+  // 5. Reemplazar archivo de facturas existente
   btnReplaceCfdi.addEventListener('click', async () => {
-    if (!confirm(`Desea eliminar las facturas cargadas del mes ${currentPeriodo} para subir un nuevo archivo?`)) {
+    if (!confirm(`Desea eliminar las facturas cargadas de "${currentEntidad}" para el mes ${currentPeriodo} y subir un nuevo archivo?`)) {
       return;
     }
 
     try {
-      const res = await fetch(`/api/reconciliation/cfdi?periodo=${currentPeriodo}`, {
+      const res = await fetch(`/api/reconciliation/cfdi?periodo=${currentPeriodo}&entidad=${encodeURIComponent(currentEntidad)}`, {
         method: 'DELETE'
       });
       const data = await res.json();
       alert(data.message);
+      await loadTabs();
       loadData();
     } catch (err) {
       alert('Error al intentar eliminar facturas.');
@@ -361,6 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData();
     formData.append('cfdiPdf', file);
     formData.append('periodo', currentPeriodo);
+    formData.append('entidad', currentEntidad);
 
     try {
       const res = await fetch('/api/reconciliation/upload-cfdi', {
@@ -371,6 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (res.ok && data.success) {
         cfdiStatus.innerHTML = `<span style="color:var(--primary); font-weight:600;">${data.message}</span>`;
+        await loadTabs();
         loadData();
       } else {
         cfdiStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al procesar archivo.'}</span>`;
@@ -382,7 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 12. Subir N archivos de Estado de Cuenta con validacion de mes
+  // 12. Subir N archivos de Estado de Cuenta con validacion de mes y pestania
   bankFilesInput.addEventListener('change', async () => {
     if (!bankFilesInput.files || bankFilesInput.files.length === 0) return;
 
@@ -394,6 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('bankPdfs', files[i]);
     }
     formData.append('periodo', currentPeriodo);
+    formData.append('entidad', currentEntidad);
 
     try {
       const res = await fetch('/api/reconciliation/upload-bank', {
@@ -404,6 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (res.ok && data.success) {
         bankStatus.innerHTML = `<span style="color:var(--primary); font-weight:600;">${data.message}</span>`;
+        await loadTabs();
         loadData();
       } else {
         bankStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al procesar estados.'}</span>`;
@@ -415,9 +498,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 13. Exportar a CSV
+  // 13. Exportar a CSV por periodo y pestania
   btnExportCsv.addEventListener('click', () => {
-    window.location.href = `/api/reconciliation/export-csv?periodo=${currentPeriodo}`;
+    window.location.href = `/api/reconciliation/export-csv?periodo=${currentPeriodo}&entidad=${encodeURIComponent(currentEntidad)}`;
   });
 
   // 14. Logica de Modal para Editar Estado y Observaciones de una Factura
@@ -544,21 +627,176 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // Eventos de teclado y clic fuera del modal
+  // 15. Gestion de Modales para Crear, Renombrar y Eliminar Pestanias
+  window.openCreateTabModal = () => {
+    modalCreateTabPeriod.textContent = currentPeriodo;
+    inputNewTabName.value = '';
+    createTabStatus.innerHTML = '';
+    createTabModal.classList.remove('hidden');
+    setTimeout(() => inputNewTabName.focus(), 50);
+  };
+
+  window.closeCreateTabModal = () => {
+    createTabModal.classList.add('hidden');
+  };
+
+  window.submitCreateTab = async () => {
+    const name = inputNewTabName.value.trim();
+    if (!name) {
+      createTabStatus.innerHTML = '<span style="color:var(--error);">Ingrese un nombre para la pestania.</span>';
+      return;
+    }
+
+    createTabStatus.innerHTML = '<span style="color:var(--info);">Creando pestania...</span>';
+    btnSubmitCreateTab.disabled = true;
+
+    try {
+      const res = await fetch('/api/reconciliation/tabs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodo: currentPeriodo, nombre: name })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        currentEntidad = name;
+        closeCreateTabModal();
+        await loadTabs();
+        loadData();
+      } else {
+        createTabStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al crear pestania.'}</span>`;
+      }
+    } catch (err) {
+      createTabStatus.innerHTML = '<span style="color:var(--error);">Error de red al crear pestania.</span>';
+    } finally {
+      btnSubmitCreateTab.disabled = false;
+    }
+  };
+
+  let activeRenamingTab = null;
+
+  window.openRenameTabModal = (tabName) => {
+    activeRenamingTab = tabName;
+    modalRenameCurrentName.textContent = tabName;
+    inputRenameTabName.value = tabName;
+    renameTabStatus.innerHTML = '';
+    renameTabModal.classList.remove('hidden');
+    setTimeout(() => inputRenameTabName.focus(), 50);
+  };
+
+  window.closeRenameTabModal = () => {
+    activeRenamingTab = null;
+    renameTabModal.classList.add('hidden');
+  };
+
+  window.submitRenameTab = async () => {
+    if (!activeRenamingTab) return;
+    const newName = inputRenameTabName.value.trim();
+    if (!newName) {
+      renameTabStatus.innerHTML = '<span style="color:var(--error);">El nombre no puede estar vacio.</span>';
+      return;
+    }
+
+    renameTabStatus.innerHTML = '<span style="color:var(--info);">Renombrando pestania...</span>';
+    btnSubmitRenameTab.disabled = true;
+
+    try {
+      const res = await fetch('/api/reconciliation/tabs/rename', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          periodo: currentPeriodo,
+          oldNombre: activeRenamingTab,
+          newNombre: newName
+        })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        if (currentEntidad === activeRenamingTab) {
+          currentEntidad = newName;
+        }
+        closeRenameTabModal();
+        await loadTabs();
+        loadData();
+      } else {
+        renameTabStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al renombrar.'}</span>`;
+      }
+    } catch (err) {
+      renameTabStatus.innerHTML = '<span style="color:var(--error);">Error de red al renombrar.</span>';
+    } finally {
+      btnSubmitRenameTab.disabled = false;
+    }
+  };
+
+  window.deleteEntityTab = async (tabName) => {
+    if (
+      !confirm(
+        `Desea eliminar la pestania "${tabName}" del mes ${currentPeriodo}?\nTodas las facturas y estados de cuenta asociados a esta pestania seran eliminados.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/reconciliation/tabs?periodo=${currentPeriodo}&nombre=${encodeURIComponent(tabName)}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json();
+      if (data.success) {
+        if (currentEntidad === tabName) {
+          currentEntidad = 'Personal';
+        }
+        await loadTabs();
+        loadData();
+      } else {
+        alert(data.message || 'Error al eliminar pestania.');
+      }
+    } catch (err) {
+      alert('Error de conexion al eliminar pestania.');
+    }
+  };
+
+  // Eventos de teclado y clic fuera de los modales
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && editModal && !editModal.classList.contains('hidden')) {
-      closeEditModal();
+    if (e.key === 'Escape') {
+      if (editModal && !editModal.classList.contains('hidden')) closeEditModal();
+      if (createTabModal && !createTabModal.classList.contains('hidden')) closeCreateTabModal();
+      if (renameTabModal && !renameTabModal.classList.contains('hidden')) closeRenameTabModal();
+    }
+    if (e.key === 'Enter') {
+      if (createTabModal && !createTabModal.classList.contains('hidden')) {
+        e.preventDefault();
+        submitCreateTab();
+      } else if (renameTabModal && !renameTabModal.classList.contains('hidden')) {
+        e.preventDefault();
+        submitRenameTab();
+      }
     }
   });
 
   if (editModal) {
     editModal.addEventListener('click', (e) => {
-      if (e.target === editModal) {
-        closeEditModal();
-      }
+      if (e.target === editModal) closeEditModal();
     });
   }
 
-  // Carga inicial
-  loadData();
+  if (createTabModal) {
+    createTabModal.addEventListener('click', (e) => {
+      if (e.target === createTabModal) closeCreateTabModal();
+    });
+  }
+
+  if (renameTabModal) {
+    renameTabModal.addEventListener('click', (e) => {
+      if (e.target === renameTabModal) closeRenameTabModal();
+    });
+  }
+
+  // Carga inicial sincronizada
+  (async () => {
+    await loadTabs();
+    loadData();
+  })();
 });

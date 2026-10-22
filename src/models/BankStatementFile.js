@@ -7,6 +7,12 @@ const bankStatementFileSchema = new mongoose.Schema(
       required: true,
       index: true // Formato AAAA-MM, ej: "2026-09"
     },
+    entidad: {
+      type: String,
+      default: 'Personal',
+      trim: true,
+      index: true // Nombre de la pestania/cuenta, ej: "Personal", "Empresa"
+    },
     nombreArchivo: {
       type: String,
       required: true
@@ -50,7 +56,7 @@ const bankStatementFileSchema = new mongoose.Schema(
   }
 );
 
-bankStatementFileSchema.index({ periodo: 1, nombreArchivo: 1 }, { unique: true });
+bankStatementFileSchema.index({ periodo: 1, entidad: 1, nombreArchivo: 1 }, { unique: true });
 
 module.exports =
   mongoose.models.BankStatementFile || mongoose.model('BankStatementFile', bankStatementFileSchema);

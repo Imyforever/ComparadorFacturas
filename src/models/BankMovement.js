@@ -7,6 +7,12 @@ const bankMovementSchema = new mongoose.Schema(
       required: true,
       index: true // Formato AAAA-MM, ej: "2026-09"
     },
+    entidad: {
+      type: String,
+      default: 'Personal',
+      trim: true,
+      index: true // Nombre de la pestania/cuenta, ej: "Personal", "Empresa"
+    },
     banco: {
       type: String,
       required: true,

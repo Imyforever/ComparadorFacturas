@@ -5,6 +5,7 @@ const path = require('path');
 const Invoice = require('../models/Invoice');
 const BankMovement = require('../models/BankMovement');
 const BankStatementFile = require('../models/BankStatementFile');
+const AccountTab = require('../models/AccountTab');
 const { parseCfdiReport } = require('../services/cfdiParser');
 const { parseBankStatement } = require('../services/bankParser');
 const { reconcile } = require('../services/reconciler');
@@ -17,12 +18,41 @@ const upload = multer({
 });
 
 /**
- * Helper para re-ejecutar conciliacion de un mes en MongoDB Atlas
+ * Helper para asegurar que existan las pestanias por defecto y migrar registros anteriores
  */
-const runReconciliationForPeriod = async (periodo) => {
-  const invoices = await Invoice.find({ periodo }).lean();
+const ensureDefaultTabs = async (periodo) => {
+  // 1. Asignar 'Personal' a cualquier documento previo que no tenga entidad
+  await Invoice.updateMany({ entidad: { $exists: false } }, { $set: { entidad: 'Personal' } });
+  await BankMovement.updateMany({ entidad: { $exists: false } }, { $set: { entidad: 'Personal' } });
+  await BankStatementFile.updateMany({ entidad: { $exists: false } }, { $set: { entidad: 'Personal' } });
+
+  // 2. Garantizar que la pestania 'Personal' exista en AccountTab para este mes
+  const personalTab = await AccountTab.findOne({ periodo, nombre: 'Personal' });
+  if (!personalTab) {
+    await AccountTab.create({ periodo, nombre: 'Personal' });
+  }
+
+  // 3. Registrar cualquier entidad existente en facturas que aun no este en AccountTab
+  const distinctEntities = await Invoice.distinct('entidad', { periodo });
+  for (const ent of distinctEntities) {
+    if (ent && typeof ent === 'string') {
+      await AccountTab.findOneAndUpdate(
+        { periodo, nombre: ent },
+        { $setOnInsert: { periodo, nombre: ent } },
+        { upsert: true }
+      );
+    }
+  }
+};
+
+/**
+ * Helper para re-ejecutar conciliacion de un mes y entidad en MongoDB Atlas
+ */
+const runReconciliationForPeriod = async (periodo, entidad = 'Personal') => {
+  const invoices = await Invoice.find({ periodo, entidad }).lean();
   const bankMovements = await BankMovement.find({
-    $or: [{ periodo }, { tipo: 'Retiro' }]
+    entidad,
+    tipo: 'Retiro'
   }).lean();
 
   if (invoices.length === 0) {
@@ -63,13 +93,134 @@ router.get('/periodos', async (req, res) => {
   }
 });
 
-// 2. Obtener resumen, facturas y lista de estados de cuenta subidos de un periodo
+// 2. Rutas de Administracion de Pestanias / Cuentas por Mes (Personal, Empresa, etc.)
+router.get('/tabs', async (req, res) => {
+  try {
+    const periodo = req.query.periodo || '2026-09';
+    await ensureDefaultTabs(periodo);
+
+    const tabs = await AccountTab.find({ periodo }).sort({ createdAt: 1 }).lean();
+
+    // Contar comprobantes y estados de cuenta por pestania
+    const tabsWithCounts = await Promise.all(
+      tabs.map(async (t) => {
+        const facturasCount = await Invoice.countDocuments({ periodo, entidad: t.nombre });
+        const bankFilesCount = await BankStatementFile.countDocuments({ periodo, entidad: t.nombre });
+        return {
+          ...t,
+          facturasCount,
+          bankFilesCount
+        };
+      })
+    );
+
+    return res.json({ success: true, tabs: tabsWithCounts });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/tabs', async (req, res) => {
+  try {
+    const { periodo, nombre } = req.body;
+    if (!periodo || !nombre || !nombre.trim()) {
+      return res.status(400).json({ success: false, message: 'El nombre de la pestania es obligatorio.' });
+    }
+
+    const cleanName = nombre.trim();
+    if (cleanName.length > 40) {
+      return res.status(400).json({ success: false, message: 'El nombre no puede exceder 40 caracteres.' });
+    }
+
+    const existing = await AccountTab.findOne({ periodo, nombre: cleanName });
+    if (existing) {
+      return res.status(400).json({ success: false, message: `Ya existe una pestania llamada "${cleanName}" en este mes.` });
+    }
+
+    const tab = await AccountTab.create({ periodo, nombre: cleanName });
+    return res.json({ success: true, message: `Pestania "${cleanName}" creada exitosamente.`, tab });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.patch('/tabs/rename', async (req, res) => {
+  try {
+    const { periodo, oldNombre, newNombre } = req.body;
+    if (!periodo || !oldNombre || !newNombre || !newNombre.trim()) {
+      return res.status(400).json({ success: false, message: 'Datos incompletos para renombrar la pestania.' });
+    }
+
+    const cleanNew = newNombre.trim();
+    if (oldNombre === cleanNew) {
+      return res.json({ success: true, message: 'El nombre es identico.' });
+    }
+
+    const tab = await AccountTab.findOne({ periodo, nombre: oldNombre });
+    if (!tab) {
+      return res.status(404).json({ success: false, message: 'Pestania no encontrada.' });
+    }
+
+    const collision = await AccountTab.findOne({ periodo, nombre: cleanNew });
+    if (collision) {
+      return res.status(400).json({ success: false, message: `Ya existe una pestania llamada "${cleanNew}".` });
+    }
+
+    tab.nombre = cleanNew;
+    await tab.save();
+
+    // Actualizar todas las facturas y estados de cuenta asociados a este nombre
+    await Invoice.updateMany({ periodo, entidad: oldNombre }, { $set: { entidad: cleanNew } });
+    await BankMovement.updateMany({ periodo, entidad: oldNombre }, { $set: { entidad: cleanNew } });
+    await BankStatementFile.updateMany({ periodo, entidad: oldNombre }, { $set: { entidad: cleanNew } });
+
+    await runReconciliationForPeriod(periodo, cleanNew);
+
+    return res.json({
+      success: true,
+      message: `Pestania renombrada a "${cleanNew}". Registros actualizados.`
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.delete('/tabs', async (req, res) => {
+  try {
+    const { periodo, nombre } = req.query;
+    if (!periodo || !nombre) {
+      return res.status(400).json({ success: false, message: 'Datos insuficientes.' });
+    }
+
+    const totalTabs = await AccountTab.countDocuments({ periodo });
+    if (totalTabs <= 1) {
+      return res.status(400).json({ success: false, message: 'No se puede eliminar la unica pestania activa del mes.' });
+    }
+
+    await AccountTab.deleteOne({ periodo, nombre });
+    const deletedInvoices = await Invoice.deleteMany({ periodo, entidad: nombre });
+    const deletedBank = await BankMovement.deleteMany({ periodo, entidad: nombre });
+    await BankStatementFile.deleteMany({ periodo, entidad: nombre });
+
+    return res.json({
+      success: true,
+      message: `Pestania "${nombre}" eliminada (${deletedInvoices.deletedCount} facturas y ${deletedBank.deletedCount} movimientos eliminados).`
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3. Obtener resumen, facturas y lista de estados de cuenta subidos de un periodo y entidad
 router.get('/data', async (req, res) => {
   try {
     const periodo = req.query.periodo || '2026-09';
+    const entidad = req.query.entidad || 'Personal';
     const filter = req.query.filter || 'all';
 
-    const query = { periodo };
+    await ensureDefaultTabs(periodo);
+
+    const query = { periodo, entidad };
     if (filter === 'pagadas') {
       query.estadoPago = 'Pagada';
     } else if (filter === 'no_pagadas') {
@@ -82,7 +233,7 @@ router.get('/data', async (req, res) => {
 
     const invoices = await Invoice.find(query).sort({ fechaEmision: 1 }).lean();
 
-    const allInvoices = await Invoice.find({ periodo }).lean();
+    const allInvoices = await Invoice.find({ periodo, entidad }).lean();
     const pagadas = allInvoices.filter((i) => i.estadoPago === 'Pagada');
     const noPagadas = allInvoices.filter((i) => i.estadoPago === 'No Pagada');
     const egresos = allInvoices.filter((i) => i.efecto === 'Egreso');
@@ -95,14 +246,15 @@ router.get('/data', async (req, res) => {
     const montoEgresos = egresos.reduce((s, i) => s + (i.total || 0), 0);
     const montoCancelado = canceladas.reduce((s, i) => s + (i.total || 0), 0);
 
-    const bankMovementsCount = await BankMovement.countDocuments({ periodo, tipo: 'Retiro' });
+    const bankMovementsCount = await BankMovement.countDocuments({ periodo, entidad, tipo: 'Retiro' });
 
-    // Consultar lista de estados de cuenta bancarios registrados para el mes
-    const bankStatements = await BankStatementFile.find({ periodo }).sort({ createdAt: -1 }).lean();
+    // Consultar lista de estados de cuenta bancarios registrados para el mes y la entidad
+    const bankStatements = await BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean();
 
     return res.json({
       success: true,
       periodo,
+      entidad,
       hasCfdiFile: totalFacturas > 0,
       summary: {
         totalFacturas,
@@ -125,7 +277,7 @@ router.get('/data', async (req, res) => {
   }
 });
 
-// 3. Subir archivo PDF de Facturas Recibidas (SAT Consulta CFDI)
+// 4. Subir archivo PDF de Facturas Recibidas (SAT Consulta CFDI)
 router.post('/upload-cfdi', upload.single('cfdiPdf'), async (req, res) => {
   try {
     if (!req.file) {
@@ -133,14 +285,15 @@ router.post('/upload-cfdi', upload.single('cfdiPdf'), async (req, res) => {
     }
 
     const targetPeriodo = req.body.periodo || '2026-09';
+    const entidad = req.body.entidad || 'Personal';
 
-    // Regla: Solo un archivo de facturas por mes. Si ya existe, se bloquea.
-    const existingCount = await Invoice.countDocuments({ periodo: targetPeriodo });
+    // Regla: Solo un archivo de facturas por mes y pestania. Si ya existe, se bloquea.
+    const existingCount = await Invoice.countDocuments({ periodo: targetPeriodo, entidad });
     if (existingCount > 0 && req.query.replace !== 'true') {
       return res.status(400).json({
         success: false,
         isBlocked: true,
-        message: `Ya existe un archivo de facturas cargado para el mes ${targetPeriodo} (${existingCount} facturas). Solo se permite un archivo por mes.`
+        message: `Ya existe un archivo de facturas cargado para "${entidad}" en el mes ${targetPeriodo} (${existingCount} facturas). Solo se permite un archivo por pestania.`
       });
     }
 
@@ -163,7 +316,8 @@ router.post('/upload-cfdi', upload.single('cfdiPdf'), async (req, res) => {
 
     const invoicesToSave = parsedInvoices.map((inv) => ({
       ...inv,
-      periodo: targetPeriodo
+      periodo: targetPeriodo,
+      entidad
     }));
 
     const bulkOps = invoicesToSave.map((inv) => ({
@@ -176,14 +330,15 @@ router.post('/upload-cfdi', upload.single('cfdiPdf'), async (req, res) => {
 
     await Invoice.bulkWrite(bulkOps);
 
-    // Reconciliar de inmediato
-    await runReconciliationForPeriod(targetPeriodo);
+    // Reconciliar de inmediato para esta entidad y periodo
+    await runReconciliationForPeriod(targetPeriodo, entidad);
 
     return res.json({
       success: true,
-      message: `Se procesaron y guardaron ${invoicesToSave.length} facturas para el mes ${targetPeriodo}.`,
+      message: `Se procesaron y guardaron ${invoicesToSave.length} facturas para "${entidad}" en el mes ${targetPeriodo}.`,
       count: invoicesToSave.length,
-      periodo: targetPeriodo
+      periodo: targetPeriodo,
+      entidad
     });
   } catch (err) {
     console.error('Error procesando reporte CFDI:', err);
@@ -191,21 +346,22 @@ router.post('/upload-cfdi', upload.single('cfdiPdf'), async (req, res) => {
   }
 });
 
-// Eliminar archivo de facturas de un mes si se desea reemplazar
+// 5. Eliminar archivo de facturas de un mes y entidad si se desea reemplazar
 router.delete('/cfdi', async (req, res) => {
   try {
     const periodo = req.query.periodo || '2026-09';
-    const deleted = await Invoice.deleteMany({ periodo });
+    const entidad = req.query.entidad || 'Personal';
+    const deleted = await Invoice.deleteMany({ periodo, entidad });
     return res.json({
       success: true,
-      message: `Se eliminaron ${deleted.deletedCount} facturas del mes ${periodo}. Ahora puede subir un nuevo archivo.`
+      message: `Se eliminaron ${deleted.deletedCount} facturas de "${entidad}" del mes ${periodo}. Ahora puede subir un nuevo archivo.`
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 4. Subir N archivos de Estado de Cuenta Bancario
+// 6. Subir N archivos de Estado de Cuenta Bancario
 router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -213,6 +369,7 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
     }
 
     const targetPeriodo = req.body.periodo || '2026-09';
+    const entidad = req.body.entidad || 'Personal';
     let totalMovements = 0;
     const uploadedResults = [];
 
@@ -240,6 +397,7 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
       const bulkOps = movements.map((mv) => ({
         updateOne: {
           filter: {
+            entidad,
             banco: mv.banco,
             fecha: mv.fecha,
             monto: mv.monto,
@@ -249,6 +407,7 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
           update: {
             $set: {
               ...mv,
+              entidad,
               archivoOrigen: file.originalname
             }
           },
@@ -269,10 +428,11 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
       const cuentaDetectada = movements[0]?.cuenta || '';
 
       await BankStatementFile.findOneAndUpdate(
-        { periodo: targetPeriodo, nombreArchivo: file.originalname },
+        { periodo: targetPeriodo, entidad, nombreArchivo: file.originalname },
         {
           $set: {
             periodo: targetPeriodo,
+            entidad,
             nombreArchivo: file.originalname,
             banco: bancoDetectado,
             cuenta: cuentaDetectada,
@@ -288,15 +448,16 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
       );
     }
 
-    const { summary } = await runReconciliationForPeriod(targetPeriodo);
-    const bankStatements = await BankStatementFile.find({ periodo: targetPeriodo })
+    const { summary } = await runReconciliationForPeriod(targetPeriodo, entidad);
+    const bankStatements = await BankStatementFile.find({ periodo: targetPeriodo, entidad })
       .sort({ createdAt: -1 })
       .lean();
 
     return res.json({
       success: true,
-      message: `Se procesaron exitosamente ${req.files.length} estado(s) de cuenta con ${totalMovements} movimientos bancarios. Conciliacion actualizada.`,
+      message: `Se procesaron exitosamente ${req.files.length} estado(s) de cuenta para "${entidad}" con ${totalMovements} movimientos bancarios. Conciliacion actualizada.`,
       totalMovements,
+      entidad,
       bankStatements,
       summary
     });
@@ -306,7 +467,7 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
   }
 });
 
-// 5. Eliminar un estado de cuenta especifico y recalcular conciliacion
+// 7. Eliminar un estado de cuenta especifico y recalcular conciliacion
 router.delete('/bank-statement/:id', async (req, res) => {
   try {
     const fileDoc = await BankStatementFile.findById(req.params.id);
@@ -314,13 +475,14 @@ router.delete('/bank-statement/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Estado de cuenta no encontrado.' });
     }
 
-    const { periodo, nombreArchivo } = fileDoc;
+    const { periodo, entidad, nombreArchivo } = fileDoc;
+    const targetEntidad = entidad || 'Personal';
 
     await BankStatementFile.deleteOne({ _id: fileDoc._id });
-    const deletedMvs = await BankMovement.deleteMany({ archivoOrigen: nombreArchivo });
+    const deletedMvs = await BankMovement.deleteMany({ archivoOrigen: nombreArchivo, entidad: targetEntidad });
 
-    const { summary } = await runReconciliationForPeriod(periodo);
-    const bankStatements = await BankStatementFile.find({ periodo }).sort({ createdAt: -1 }).lean();
+    const { summary } = await runReconciliationForPeriod(periodo, targetEntidad);
+    const bankStatements = await BankStatementFile.find({ periodo, entidad: targetEntidad }).sort({ createdAt: -1 }).lean();
 
     return res.json({
       success: true,
@@ -333,126 +495,19 @@ router.delete('/bank-statement/:id', async (req, res) => {
   }
 });
 
-// 6. Consultar unicamente los estados de cuenta subidos de un mes
+// 8. Consultar unicamente los estados de cuenta subidos de un mes y entidad
 router.get('/bank-statements', async (req, res) => {
   try {
     const periodo = req.query.periodo || '2026-09';
-    const bankStatements = await BankStatementFile.find({ periodo }).sort({ createdAt: -1 }).lean();
+    const entidad = req.query.entidad || 'Personal';
+    const bankStatements = await BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean();
     return res.json({ success: true, bankStatements });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 7. Cargar directamente los archivos locales de Septiembre 2026 desde Downloads
-router.post('/process-local-september', async (req, res) => {
-  try {
-    const cfdiPath = '/Users/angel_dzul/Downloads/FACTURAS RECIBIDAS SEPTIEMBRE.pdf';
-    const bankCandidates = [
-      '/Users/angel_dzul/Downloads/ESTADO DE CUENTA 4912 AGOSTO.pdf',
-      '/Users/angel_dzul/Downloads/ESTADO DE CUENTA 9260 SEPTIEMBRE.pdf'
-    ];
-
-    if (!fs.existsSync(cfdiPath)) {
-      return res.status(404).json({ success: false, message: `No se encontro el archivo: ${cfdiPath}` });
-    }
-
-    const periodo = '2026-09';
-
-    const cfdiBuf = fs.readFileSync(cfdiPath);
-    const { invoices: parsedInvoices } = await parseCfdiReport(cfdiBuf);
-
-    const invoicesToSave = parsedInvoices.map((inv) => ({
-      ...inv,
-      periodo
-    }));
-
-    const invoiceOps = invoicesToSave.map((inv) => ({
-      updateOne: {
-        filter: { uuid: inv.uuid },
-        update: { $set: inv },
-        upsert: true
-      }
-    }));
-    await Invoice.bulkWrite(invoiceOps);
-
-    let bankCount = 0;
-    for (const bankPath of bankCandidates) {
-      if (fs.existsSync(bankPath)) {
-        const bankBuf = fs.readFileSync(bankPath);
-        const { movements } = await parseBankStatement(bankBuf, '2026');
-        const filename = path.basename(bankPath);
-
-        const bankOps = movements.map((mv) => ({
-          updateOne: {
-            filter: {
-              banco: mv.banco,
-              fecha: mv.fecha,
-              monto: mv.monto,
-              saldo: mv.saldo,
-              concepto: mv.concepto
-            },
-            update: {
-              $set: {
-                ...mv,
-                archivoOrigen: filename
-              }
-            },
-            upsert: true
-          }
-        }));
-        if (bankOps.length > 0) {
-          await BankMovement.bulkWrite(bankOps);
-          bankCount += bankOps.length;
-        }
-
-        const retiros = movements.filter((m) => m.tipo === 'Retiro');
-        const depositos = movements.filter((m) => m.tipo === 'Deposito');
-        const totalCargos = retiros.reduce((s, m) => s + (m.monto || 0), 0);
-        const totalAbonos = depositos.reduce((s, m) => s + (m.monto || 0), 0);
-        const bancoDetectado = movements[0]?.banco || 'Banco';
-        const cuentaDetectada = movements[0]?.cuenta || '';
-
-        await BankStatementFile.findOneAndUpdate(
-          { periodo, nombreArchivo: filename },
-          {
-            $set: {
-              periodo,
-              nombreArchivo: filename,
-              banco: bancoDetectado,
-              cuenta: cuentaDetectada,
-              totalMovimientos: movements.length,
-              cargosCount: retiros.length,
-              abonosCount: depositos.length,
-              montoCargos: totalCargos,
-              montoAbonos: totalAbonos,
-              fechaSubida: new Date()
-            }
-          },
-          { upsert: true, new: true }
-        );
-      }
-    }
-
-    const { summary } = await runReconciliationForPeriod(periodo);
-    const bankStatements = await BankStatementFile.find({ periodo }).sort({ createdAt: -1 }).lean();
-
-    return res.json({
-      success: true,
-      message: `Procesamiento completado para ${periodo}. ${invoicesToSave.length} facturas y ${bankCount} movimientos bancarios procesados.`,
-      periodo,
-      invoicesCount: invoicesToSave.length,
-      bankCount,
-      bankStatements,
-      summary
-    });
-  } catch (err) {
-    console.error('Error procesando archivos locales:', err);
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// 8. Actualizar manualmente estado de pago y observaciones de una factura
+// 9. Actualizar manualmente estado de pago y observaciones de una factura
 router.patch('/invoice/:uuid', async (req, res) => {
   try {
     const { uuid } = req.params;
@@ -471,8 +526,8 @@ router.patch('/invoice/:uuid', async (req, res) => {
       }
       await invoice.save();
 
-      // Recalcular conciliacion para este periodo
-      await runReconciliationForPeriod(invoice.periodo);
+      // Recalcular conciliacion para este periodo y entidad
+      await runReconciliationForPeriod(invoice.periodo, invoice.entidad || 'Personal');
       const updated = await Invoice.findOne({ uuid }).lean();
 
       return res.json({
@@ -505,11 +560,12 @@ router.patch('/invoice/:uuid', async (req, res) => {
   }
 });
 
-// 9. Exportar reporte en CSV
+// 10. Exportar reporte en CSV
 router.get('/export-csv', async (req, res) => {
   try {
     const periodo = req.query.periodo || '2026-09';
-    const invoices = await Invoice.find({ periodo }).sort({ fechaEmision: 1 }).lean();
+    const entidad = req.query.entidad || 'Personal';
+    const invoices = await Invoice.find({ periodo, entidad }).sort({ fechaEmision: 1 }).lean();
 
     const headers = [
       'No.',
@@ -548,7 +604,7 @@ router.get('/export-csv', async (req, res) => {
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="Conciliacion_Facturas_${periodo}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="Conciliacion_${entidad}_${periodo}.csv"`);
     return res.send('\uFEFF' + csvContent);
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

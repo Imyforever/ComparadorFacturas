@@ -34,7 +34,21 @@
         </div>
       </div>
 
-      <!-- 1. Cargar Facturas SAT (1 solo archivo por mes) -->
+      <!-- Barra de Pestanias / Cuentas por Mes (ej: Personal, Empresa, etc.) -->
+      <div class="entity-tabs-panel">
+        <div class="entity-tabs-wrapper">
+          <div class="entity-tabs-list" id="entity-tabs-list">
+            <!-- Pestanias cargadas dinamicamente -->
+          </div>
+          <div class="entity-tabs-actions">
+            <button type="button" class="btn-add-tab" id="btn-open-create-tab" onclick="openCreateTabModal()">
+              + Nueva Pestania
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1. Cargar Facturas SAT (1 solo archivo por mes y pestania) -->
       <div class="cfdi-upload-panel">
         <div class="panel-header">
           <div>
@@ -209,6 +223,58 @@
             Guardar Cambios
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para Crear Nueva Pestania -->
+  <div id="create-tab-modal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3>Crear Nueva Pestania</h3>
+        <button type="button" class="btn-close-modal" onclick="closeCreateTabModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Cree una pestania independiente para separar y conciliar facturas y estados de cuenta (ejemplo: Mi Empresa, Sucursal Centro, etc.) en este mes (<strong id="modal-create-tab-period">-</strong>).
+        </p>
+        <div class="form-group">
+          <label for="input-new-tab-name" class="form-label">Nombre de la Pestania:</label>
+          <input type="text" id="input-new-tab-name" class="form-input" placeholder="Ejemplo: Mi Empresa" maxlength="40">
+        </div>
+        <span id="create-tab-status" class="status-msg"></span>
+      </div>
+      <div class="modal-footer" style="justify-content: flex-end;">
+        <button type="button" class="btn-action" onclick="closeCreateTabModal()">Cancelar</button>
+        <button type="button" class="btn-action btn-action-primary" id="btn-submit-create-tab" onclick="submitCreateTab()">
+          Crear Pestania
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para Renombrar Pestania -->
+  <div id="rename-tab-modal" class="modal-backdrop hidden">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3>Renombrar Pestania</h3>
+        <button type="button" class="btn-close-modal" onclick="closeRenameTabModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Ingrese el nuevo nombre para la pestania <strong id="modal-rename-current-name">-</strong>. Las facturas y estados de cuenta asociados se actualizaran automaticamente.
+        </p>
+        <div class="form-group">
+          <label for="input-rename-tab-name" class="form-label">Nuevo Nombre:</label>
+          <input type="text" id="input-rename-tab-name" class="form-input" placeholder="Ejemplo: Empresa Principal" maxlength="40">
+        </div>
+        <span id="rename-tab-status" class="status-msg"></span>
+      </div>
+      <div class="modal-footer" style="justify-content: flex-end;">
+        <button type="button" class="btn-action" onclick="closeRenameTabModal()">Cancelar</button>
+        <button type="button" class="btn-action btn-action-primary" id="btn-submit-rename-tab" onclick="submitRenameTab()">
+          Guardar Nombre
+        </button>
       </div>
     </div>
   </div>
