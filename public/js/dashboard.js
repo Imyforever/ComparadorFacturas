@@ -33,6 +33,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const searchInput = document.getElementById('search-input');
   const showingCount = document.getElementById('showing-count');
 
+  // Elementos de Filtro por Campo y Analizados
+  const filterFieldSelect = document.getElementById('filter-field-select');
+  const filterAnalyzedSelect = document.getElementById('filter-analyzed-select');
+  const labelAnalyzedSelect = document.getElementById('label-analyzed-select');
+  const labelSearchInput = document.getElementById('label-search-input');
+  const analyzedDatalist = document.getElementById('analyzed-datalist');
+  const btnClearSearch = document.getElementById('btn-clear-search');
+  const activeFilterIndicator = document.getElementById('active-filter-indicator');
+  const indicatorField = document.getElementById('indicator-field');
+  const indicatorQuery = document.getElementById('indicator-query');
+  const indicatorStats = document.getElementById('indicator-stats');
+  const btnClearBanner = document.getElementById('btn-clear-banner');
+  const btnViewDetail = document.getElementById('btn-view-detail');
+  const btnViewGrouped = document.getElementById('btn-view-grouped');
+  const tableContainerDetail = document.getElementById('table-container-detail');
+  const tableContainerGrouped = document.getElementById('table-container-grouped');
+  const groupedRows = document.getElementById('grouped-rows');
+
   const statTotalAmount = document.getElementById('stat-total-amount');
   const statTotalCount = document.getElementById('stat-total-count');
   const statPaidAmount = document.getElementById('stat-paid-amount');
@@ -62,6 +80,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentEntidad = 'Personal';
   let cachedTabs = [];
   let currentFilter = 'all';
+  let selectedField = 'emisor';
+  let currentViewMode = 'detail';
   let cachedInvoices = [];
 
   // Elementos de Pestanias / Cuentas
@@ -186,6 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSummary(data.summary);
         updateCfdiLockState(data.hasCfdiFile, data.summary.totalFacturas);
         renderBankStatements(data.bankStatements || []);
+        updateAnalyzedOptions();
         applyFilterAndRender();
 
         // Actualizar contador de la pestania activa
@@ -332,24 +353,190 @@ document.addEventListener('DOMContentLoaded', () => {
     statCanceledCount.textContent = `${summary.canceladasCount} canceladas en SAT`;
   }
 
-  // 8. Renderizar tabla con enumeracion (No.), filtro y buscador
-  function applyFilterAndRender() {
-    const term = (searchInput.value || '').trim().toLowerCase();
+  // 8. Normalizacion y Comparacion Inteligente de Texto
+  function normalizeStr(str) {
+    if (!str) return '';
+    return str
+      .toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
 
-    let filtered = cachedInvoices.filter((inv) => {
-      if (currentFilter === 'pagadas' && inv.estadoPago !== 'Pagada') return false;
-      if (currentFilter === 'no_pagadas' && inv.estadoPago !== 'No Pagada') return false;
-      if (currentFilter === 'egresos' && inv.efecto !== 'Egreso') return false;
-      if (currentFilter === 'canceladas' && inv.estadoPago !== 'Cancelada') return false;
+  function matchesQuery(targetVal, query) {
+    if (!query) return true;
+    if (!targetVal) return false;
 
-      if (term) {
-        const str = `${inv.uuid} ${inv.emisor} ${inv.rfcEmisor} ${inv.total} ${inv.observaciones || ''}`.toLowerCase();
-        return str.includes(term);
-      }
+    const normTarget = normalizeStr(targetVal);
+    const normQuery = normalizeStr(query);
+
+    if (normTarget.includes(normQuery)) return true;
+
+    // Comparacion compacta sin espacios ni simbolos (permite ej: "walmart" vs "NUEVA WAL MART DE MEXICO")
+    const compactTarget = normTarget.replace(/[^a-z0-9]/g, '');
+    const compactQuery = normQuery.replace(/[^a-z0-9]/g, '');
+    if (compactQuery && compactTarget.includes(compactQuery)) return true;
+
+    // Comparacion token por token
+    const tokens = normQuery.split(/\s+/).filter(Boolean);
+    if (tokens.length > 1 && tokens.every((tok) => normTarget.includes(tok))) {
       return true;
-    });
+    }
 
-    showingCount.textContent = `Mostrando ${filtered.length} de ${cachedInvoices.length} facturas`;
+    return false;
+  }
+
+  function checkFieldMatch(inv, field, query) {
+    if (!query) return true;
+    switch (field) {
+      case 'emisor':
+        return matchesQuery(inv.emisor, query);
+      case 'rfcEmisor':
+        return matchesQuery(inv.rfcEmisor, query);
+      case 'uuid':
+        return matchesQuery(inv.uuid, query);
+      case 'estadoPago':
+        return matchesQuery(inv.estadoPago, query);
+      case 'banco':
+        const bancoInfo = `${inv.pagoAsociado?.banco || ''} ${inv.pagoAsociado?.conceptoBanco || ''} ${inv.estadoPago === 'Pagada' ? 'Pagada' : ''}`;
+        return matchesQuery(bancoInfo, query);
+      case 'observaciones':
+        return matchesQuery(inv.observaciones, query);
+      case 'all':
+      default:
+        const allText = `${inv.uuid || ''} ${inv.emisor || ''} ${inv.rfcEmisor || ''} ${inv.total || ''} ${inv.estadoPago || ''} ${inv.pagoAsociado?.banco || ''} ${inv.observaciones || ''}`;
+        return matchesQuery(allText, query);
+    }
+  }
+
+  const FIELD_LABELS = {
+    emisor: 'Emisor / Proveedor',
+    rfcEmisor: 'RFC Emisor',
+    uuid: 'Folio Fiscal (UUID)',
+    estadoPago: 'Estado de Pago',
+    banco: 'Banco / Evidencia',
+    observaciones: 'Observaciones',
+    all: 'Todos los campos'
+  };
+
+  // 9. Extraer Valores Analizados en Automatico para el Campo Seleccionado
+  function getAnalyzedFieldValues(field) {
+    const map = new Map();
+
+    for (const inv of cachedInvoices) {
+      let key = '';
+      let secondary = '';
+
+      if (field === 'emisor') {
+        key = (inv.emisor || 'Sin Emisor').trim();
+        secondary = inv.rfcEmisor || '';
+      } else if (field === 'rfcEmisor') {
+        key = (inv.rfcEmisor || 'Sin RFC').trim();
+        secondary = inv.emisor || '';
+      } else if (field === 'uuid') {
+        key = (inv.uuid || '').trim();
+      } else if (field === 'estadoPago') {
+        key = (inv.estadoPago || 'No Pagada').trim();
+      } else if (field === 'banco') {
+        key = (inv.pagoAsociado?.banco || (inv.estadoPago === 'Pagada' ? 'Banco Conciliado' : 'Sin pago bancario')).trim();
+      } else if (field === 'observaciones') {
+        if (!inv.observaciones) continue;
+        key = inv.observaciones.trim();
+      } else {
+        key = (inv.emisor || 'Sin Emisor').trim();
+        secondary = inv.rfcEmisor || '';
+      }
+
+      if (!key) continue;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          name: key,
+          secondary,
+          count: 0,
+          total: 0,
+          pagadasCount: 0,
+          pagadasMonto: 0,
+          noPagadasCount: 0,
+          noPagadasMonto: 0,
+          canceladasCount: 0
+        });
+      }
+
+      const item = map.get(key);
+      const monto = Number(inv.total || 0);
+      item.count++;
+      item.total += monto;
+
+      if (inv.estadoPago === 'Pagada') {
+        item.pagadasCount++;
+        item.pagadasMonto += monto;
+      } else if (inv.estadoPago === 'No Pagada') {
+        item.noPagadasCount++;
+        item.noPagadasMonto += monto;
+      } else if (inv.estadoPago === 'Cancelada') {
+        item.canceladasCount++;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }
+
+  // 10. Actualizar Opciones del Selector de Analizados y Datalist
+  function updateAnalyzedOptions() {
+    const list = getAnalyzedFieldValues(selectedField);
+    const fieldName = FIELD_LABELS[selectedField] || 'Campo';
+
+    if (labelAnalyzedSelect) {
+      labelAnalyzedSelect.textContent = `${fieldName}s Analizados en este Mes (${list.length}):`;
+    }
+    if (labelSearchInput) {
+      labelSearchInput.textContent = `Buscar en ${fieldName}:`;
+    }
+
+    if (searchInput) {
+      if (selectedField === 'emisor') {
+        searchInput.placeholder = 'Escribir o buscar (ej. walmart)...';
+      } else if (selectedField === 'rfcEmisor') {
+        searchInput.placeholder = 'Escribir RFC (ej. NWM9709244W4)...';
+      } else if (selectedField === 'uuid') {
+        searchInput.placeholder = 'Escribir folio fiscal UUID...';
+      } else {
+        searchInput.placeholder = `Buscar en ${fieldName.toLowerCase()}...`;
+      }
+    }
+
+    if (filterAnalyzedSelect) {
+      filterAnalyzedSelect.innerHTML = '';
+      const defOpt = document.createElement('option');
+      defOpt.value = '';
+      defOpt.textContent = `-- Seleccionar ${fieldName.toLowerCase()} analizado (${list.length}) --`;
+      filterAnalyzedSelect.appendChild(defOpt);
+
+      for (const item of list) {
+        const opt = document.createElement('option');
+        opt.value = item.name;
+        opt.textContent = `${item.name} (${item.count} facturas · ${formatMoney(item.total)})`;
+        filterAnalyzedSelect.appendChild(opt);
+      }
+    }
+
+    if (analyzedDatalist) {
+      analyzedDatalist.innerHTML = '';
+      for (const item of list) {
+        const dataOpt = document.createElement('option');
+        dataOpt.value = item.name;
+        dataOpt.label = `${item.count} facturas · ${formatMoney(item.total)}`;
+        analyzedDatalist.appendChild(dataOpt);
+      }
+    }
+  }
+
+  // 11. Renderizar Vista Detallada de Facturas
+  function renderDetailView(filtered) {
+    if (tableContainerDetail) tableContainerDetail.style.display = 'block';
+    if (tableContainerGrouped) tableContainerGrouped.style.display = 'none';
 
     if (filtered.length === 0) {
       invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">No se encontraron facturas con el criterio seleccionado.</td></tr>`;
@@ -417,7 +604,217 @@ document.addEventListener('DOMContentLoaded', () => {
       .join('');
   }
 
-  // 9. Cambiar pestanias de filtro
+  // 12. Renderizar Vista Agrupada por Emisor Analizado
+  function renderGroupedView(filteredInvoices) {
+    if (tableContainerDetail) tableContainerDetail.style.display = 'none';
+    if (tableContainerGrouped) tableContainerGrouped.style.display = 'block';
+
+    const map = new Map();
+    for (const inv of filteredInvoices) {
+      const emisor = (inv.emisor || 'Sin Emisor').trim();
+      if (!map.has(emisor)) {
+        map.set(emisor, {
+          emisor,
+          rfcEmisor: inv.rfcEmisor || '-',
+          count: 0,
+          total: 0,
+          pagadasCount: 0,
+          pagadasMonto: 0,
+          noPagadasCount: 0,
+          noPagadasMonto: 0,
+          canceladasCount: 0
+        });
+      }
+      const item = map.get(emisor);
+      const monto = Number(inv.total || 0);
+      item.count++;
+      item.total += monto;
+      if (inv.estadoPago === 'Pagada') {
+        item.pagadasCount++;
+        item.pagadasMonto += monto;
+      } else if (inv.estadoPago === 'No Pagada') {
+        item.noPagadasCount++;
+        item.noPagadasMonto += monto;
+      } else if (inv.estadoPago === 'Cancelada') {
+        item.canceladasCount++;
+      }
+    }
+
+    const list = Array.from(map.values()).sort((a, b) => b.count - a.count || a.emisor.localeCompare(b.emisor));
+
+    if (list.length === 0) {
+      groupedRows.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--text-muted);">No se encontraron emisores analizados con el criterio actual.</td></tr>`;
+      return;
+    }
+
+    groupedRows.innerHTML = list
+      .map((item, index) => {
+        const safeName = item.emisor.replace(/'/g, "\\'");
+        return `
+          <tr>
+            <td style="text-align:center; font-weight:600; color:var(--text-muted); font-size:11.5px;">${index + 1}</td>
+            <td><strong>${item.emisor}</strong></td>
+            <td><code style="font-size:11px;">${item.rfcEmisor}</code></td>
+            <td style="text-align:center; font-weight:700; color:var(--primary); font-size:12.5px;">${item.count}</td>
+            <td style="text-align:right; font-weight:700;">${formatMoney(item.total)}</td>
+            <td>
+              <span class="badge-paid">${item.pagadasCount}</span>
+              <span style="font-size:11.5px; color:var(--text-muted); margin-left:4px;">(${formatMoney(item.pagadasMonto)})</span>
+            </td>
+            <td>
+              <span class="badge-unpaid">${item.noPagadasCount}</span>
+              <span style="font-size:11.5px; color:var(--text-muted); margin-left:4px;">(${formatMoney(item.noPagadasMonto)})</span>
+            </td>
+            <td style="text-align:center;">
+              ${item.canceladasCount > 0 ? `<span class="badge-canceled">${item.canceladasCount}</span>` : '<span style="color:var(--text-muted); font-size:11px;">0</span>'}
+            </td>
+            <td style="text-align:center;">
+              <button type="button" class="btn-action-small" onclick="filterByEmisor('${safeName}')" title="Ver detalle de facturas analizadas de ${item.emisor}">
+                Ver Facturas
+              </button>
+            </td>
+          </tr>
+        `;
+      })
+      .join('');
+  }
+
+  // 13. Aplicar Filtro y Renderizar
+  function applyFilterAndRender() {
+    const query = (searchInput.value || '').trim();
+
+    // Filtrar facturas
+    const filtered = cachedInvoices.filter((inv) => {
+      if (currentFilter === 'pagadas' && inv.estadoPago !== 'Pagada') return false;
+      if (currentFilter === 'no_pagadas' && inv.estadoPago !== 'No Pagada') return false;
+      if (currentFilter === 'egresos' && inv.efecto !== 'Egreso') return false;
+      if (currentFilter === 'canceladas' && inv.estadoPago !== 'Cancelada') return false;
+
+      if (query) {
+        return checkFieldMatch(inv, selectedField, query);
+      }
+      return true;
+    });
+
+    // Control del banner de filtro activo y boton limpiar
+    if (query) {
+      if (btnClearSearch) btnClearSearch.style.display = 'block';
+      if (activeFilterIndicator) {
+        activeFilterIndicator.style.display = 'flex';
+        if (indicatorField) indicatorField.textContent = FIELD_LABELS[selectedField] || selectedField;
+        if (indicatorQuery) indicatorQuery.textContent = `"${query}"`;
+
+        let filterPaid = 0;
+        let filterUnpaid = 0;
+        let filterTotal = 0;
+        for (const f of filtered) {
+          filterTotal += Number(f.total || 0);
+          if (f.estadoPago === 'Pagada') filterPaid++;
+          else if (f.estadoPago === 'No Pagada') filterUnpaid++;
+        }
+        if (indicatorStats) {
+          indicatorStats.textContent = `(${filtered.length} analizadas · ${filterPaid} pagadas, ${filterUnpaid} pendientes · Total: ${formatMoney(filterTotal)})`;
+        }
+      }
+    } else {
+      if (btnClearSearch) btnClearSearch.style.display = 'none';
+      if (activeFilterIndicator) activeFilterIndicator.style.display = 'none';
+    }
+
+    if (showingCount) {
+      showingCount.textContent = `Mostrando ${filtered.length} de ${cachedInvoices.length} facturas`;
+    }
+
+    // Renderizar segun vista activa
+    if (currentViewMode === 'grouped') {
+      renderGroupedView(filtered);
+    } else {
+      renderDetailView(filtered);
+    }
+  }
+
+  // 14. Eventos de Filtro por Campo y Analizados
+  if (filterFieldSelect) {
+    filterFieldSelect.addEventListener('change', () => {
+      selectedField = filterFieldSelect.value;
+      updateAnalyzedOptions();
+      applyFilterAndRender();
+    });
+  }
+
+  if (filterAnalyzedSelect) {
+    filterAnalyzedSelect.addEventListener('change', () => {
+      searchInput.value = filterAnalyzedSelect.value;
+      applyFilterAndRender();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      // Sincronizar el select de analizados si coincide exactamente
+      if (filterAnalyzedSelect) {
+        const val = searchInput.value.trim();
+        const hasMatch = Array.from(filterAnalyzedSelect.options).some((o) => o.value && o.value.toLowerCase() === val.toLowerCase());
+        if (hasMatch) {
+          filterAnalyzedSelect.value = val;
+        } else {
+          filterAnalyzedSelect.value = '';
+        }
+      }
+      applyFilterAndRender();
+    });
+  }
+
+  if (btnClearSearch) {
+    btnClearSearch.addEventListener('click', () => {
+      searchInput.value = '';
+      if (filterAnalyzedSelect) filterAnalyzedSelect.value = '';
+      applyFilterAndRender();
+      searchInput.focus();
+    });
+  }
+
+  if (btnClearBanner) {
+    btnClearBanner.addEventListener('click', () => {
+      searchInput.value = '';
+      if (filterAnalyzedSelect) filterAnalyzedSelect.value = '';
+      applyFilterAndRender();
+    });
+  }
+
+  // Alternar Modos de Vista
+  if (btnViewDetail) {
+    btnViewDetail.addEventListener('click', () => {
+      currentViewMode = 'detail';
+      btnViewDetail.classList.add('active');
+      if (btnViewGrouped) btnViewGrouped.classList.remove('active');
+      applyFilterAndRender();
+    });
+  }
+
+  if (btnViewGrouped) {
+    btnViewGrouped.addEventListener('click', () => {
+      currentViewMode = 'grouped';
+      btnViewGrouped.classList.add('active');
+      if (btnViewDetail) btnViewDetail.classList.remove('active');
+      applyFilterAndRender();
+    });
+  }
+
+  // Accion rapida desde vista agrupada para filtrar por emisor
+  window.filterByEmisor = (emisorName) => {
+    selectedField = 'emisor';
+    if (filterFieldSelect) filterFieldSelect.value = 'emisor';
+    updateAnalyzedOptions();
+    if (searchInput) searchInput.value = emisorName;
+    if (filterAnalyzedSelect) filterAnalyzedSelect.value = emisorName;
+    currentViewMode = 'detail';
+    if (btnViewDetail) btnViewDetail.classList.add('active');
+    if (btnViewGrouped) btnViewGrouped.classList.remove('active');
+    applyFilterAndRender();
+  };
+
+  // Pestanias de estado SAT (Todas, Pagadas, No Pagadas, Egresos, Canceladas)
   document.querySelectorAll('.filter-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
@@ -426,9 +823,6 @@ document.addEventListener('DOMContentLoaded', () => {
       applyFilterAndRender();
     });
   });
-
-  // 10. Buscador en tiempo real
-  searchInput.addEventListener('input', applyFilterAndRender);
 
   // 11. Subir archivo SAT Consulta CFDI con validacion de mes
   cfdiFileInput.addEventListener('change', async () => {

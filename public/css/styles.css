@@ -691,14 +691,195 @@ body.login-page {
   outline: none;
 }
 
-@media (min-width: 640px) {
-  .search-input {
-    width: 260px;
-  }
-}
-
 .search-input:focus {
   border-color: var(--border-focus);
+}
+
+/* Alternador de Modo de Vista (Detallada vs Por Emisor) */
+.view-mode-toggle {
+  display: flex;
+  gap: 4px;
+  background-color: #f3f4f6;
+  padding: 3px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.view-mode-btn {
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.view-mode-btn:hover {
+  color: var(--text-main);
+}
+
+.view-mode-btn.active {
+  background-color: #ffffff;
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Panel de Filtro Especifico por Campo con Valores Analizados */
+.field-filter-panel {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.field-filter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.field-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 190px;
+}
+
+.field-filter-item-large {
+  flex: 1 1 280px;
+  min-width: 220px;
+}
+
+.field-filter-item-search {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.field-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.field-select,
+.analyzed-select {
+  height: 36px;
+  font-size: 12.5px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background-color: #ffffff;
+  padding: 0 10px;
+  color: var(--text-main);
+  outline: none;
+  width: 100%;
+}
+
+.field-select:focus,
+.analyzed-select:focus {
+  border-color: var(--border-focus);
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.search-input-wrapper .search-input {
+  width: 100%;
+  padding-right: 28px;
+}
+
+.btn-clear-search {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+.btn-clear-search:hover {
+  color: var(--error);
+}
+
+/* Banner de Filtro Activo */
+.active-filter-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  gap: 10px;
+  font-size: 12px;
+  color: #166534;
+}
+
+.active-filter-text {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.active-filter-tag {
+  background-color: var(--primary);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+
+.active-filter-field {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.active-filter-stats {
+  color: #15803d;
+  font-size: 11.5px;
+}
+
+.btn-clear-banner {
+  background: transparent;
+  border: 1px solid #86efac;
+  border-radius: 3px;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-clear-banner:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
 }
 
 /* Tabla de Facturas */
@@ -1149,4 +1330,37 @@ body.login-page {
   .filter-btn {
     justify-content: center;
   }
+
+  .view-mode-toggle {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .view-mode-btn {
+    text-align: center;
+  }
+
+  .field-filter-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .field-filter-item,
+  .field-filter-item-large,
+  .field-filter-item-search {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
+
+  .active-filter-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .btn-clear-banner {
+    width: 100%;
+    text-align: center;
+  }
 }
+

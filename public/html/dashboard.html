@@ -127,7 +127,7 @@
         </div>
       </div>
 
-      <!-- Barra de Filtros y Buscador -->
+      <!-- Barra de Filtros y Modo de Vista -->
       <div class="filter-bar">
         <div class="filter-tabs">
           <button type="button" class="filter-btn active" data-filter="all">Todas</button>
@@ -137,11 +137,66 @@
           <button type="button" class="filter-btn" data-filter="canceladas">Canceladas</button>
         </div>
 
-        <input type="text" id="search-input" class="search-input" placeholder="Buscar por RFC, emisor, folio u observacion...">
+        <!-- Alternador de Vista: Detallada vs Agrupada por Emisor -->
+        <div class="view-mode-toggle">
+          <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas individuales analizadas">
+            Vista Detallada
+          </button>
+          <button type="button" class="view-mode-btn" id="btn-view-grouped" title="Ver agrupacion y resumen de emisores analizados">
+            Vista por Emisor
+          </button>
+        </div>
       </div>
 
-      <!-- Tabla de Conciliacion de Facturas con Enumeracion -->
-      <div class="table-container">
+      <!-- Filtro Especifico por Campo con Lista de Valores Analizados en Automatico -->
+      <div class="field-filter-panel">
+        <div class="field-filter-grid">
+          <div class="field-filter-item">
+            <label for="filter-field-select" class="field-filter-label">Campo a Filtrar:</label>
+            <select id="filter-field-select" class="form-input field-select">
+              <option value="emisor" selected>Emisor / Proveedor</option>
+              <option value="rfcEmisor">RFC Emisor</option>
+              <option value="uuid">Folio Fiscal (UUID)</option>
+              <option value="estadoPago">Estado de Pago</option>
+              <option value="banco">Banco / Evidencia</option>
+              <option value="observaciones">Observaciones</option>
+              <option value="all">Todos los campos</option>
+            </select>
+          </div>
+
+          <div class="field-filter-item field-filter-item-large">
+            <label for="filter-analyzed-select" class="field-filter-label" id="label-analyzed-select">
+              Emisores Analizados en este Mes (0):
+            </label>
+            <select id="filter-analyzed-select" class="form-input analyzed-select">
+              <option value="">-- Seleccionar emisor analizado (0) --</option>
+            </select>
+          </div>
+
+          <div class="field-filter-item field-filter-item-search">
+            <label for="search-input" class="field-filter-label" id="label-search-input">Escribir o Buscar (ej: walmart):</label>
+            <div class="search-input-wrapper">
+              <input type="text" id="search-input" class="search-input" list="analyzed-datalist" placeholder="Escribir o buscar (ej. walmart)..." autocomplete="off">
+              <datalist id="analyzed-datalist"></datalist>
+              <button type="button" id="btn-clear-search" class="btn-clear-search" title="Limpiar filtro" style="display:none;">&times;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Indicador Informativo de Filtro Activo -->
+      <div id="active-filter-indicator" class="active-filter-banner" style="display: none;">
+        <div class="active-filter-text">
+          <span class="active-filter-tag">Filtro Activo</span>
+          <span class="active-filter-field" id="indicator-field">Emisor</span>:
+          <strong id="indicator-query">"walmart"</strong>
+          <span class="active-filter-stats" id="indicator-stats">(0 facturas analizadas)</span>
+        </div>
+        <button type="button" class="btn-clear-banner" id="btn-clear-banner">Quitar Filtro</button>
+      </div>
+
+      <!-- Tabla 1: Vista Detallada de Facturas con Enumeracion -->
+      <div class="table-container" id="table-container-detail">
         <table class="table-excel">
           <thead>
             <tr>
@@ -162,6 +217,32 @@
             <tr>
               <td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">
                 Cargando datos de conciliacion...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tabla 2: Vista Agrupada por Emisor Analizado -->
+      <div class="table-container" id="table-container-grouped" style="display: none;">
+        <table class="table-excel">
+          <thead>
+            <tr>
+              <th style="width: 45px; text-align: center;">No.</th>
+              <th>Emisor / Proveedor</th>
+              <th style="width: 130px;">RFC Emisor</th>
+              <th style="width: 125px; text-align: center;">Facturas Analizadas</th>
+              <th style="width: 130px; text-align: right;">Total Facturado</th>
+              <th style="width: 140px;">Pagadas en Banco</th>
+              <th style="width: 140px;">Pendientes de Pago</th>
+              <th style="width: 95px; text-align: center;">Canceladas</th>
+              <th style="width: 100px; text-align: center;">Accion</th>
+            </tr>
+          </thead>
+          <tbody id="grouped-rows">
+            <tr>
+              <td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">
+                Sin emisores analizados para este mes.
               </td>
             </tr>
           </tbody>
