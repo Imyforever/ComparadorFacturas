@@ -459,6 +459,15 @@ body.login-page {
   word-break: break-word;
 }
 
+/* Modulos de Facturas y Estados de Cuenta */
+.cfdi-upload-panel {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
 /* Panel de Estados de Cuenta Subidos */
 .bank-statements-panel {
   background: #ffffff;

@@ -32,53 +32,49 @@
         </div>
       </div>
 
-      <!-- Modulos de Carga de Archivos -->
-      <div class="upload-grid">
-        <!-- 1. Cargar Facturas SAT (1 solo archivo por mes) -->
-        <div class="upload-card">
-          <h3>1. Facturas Recibidas (SAT Consulta CFDI)</h3>
-          <p>Unicamente se permite 1 archivo de facturas por mes:</p>
-          <input type="file" id="cfdi-file" accept=".pdf" style="display:none;">
+      <!-- 1. Cargar Facturas SAT (1 solo archivo por mes) -->
+      <div class="cfdi-upload-panel">
+        <div class="panel-header">
+          <div>
+            <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
+              1. Facturas Recibidas (SAT Consulta CFDI)
+            </h3>
+            <span style="font-size: 11.5px; color: var(--text-muted);">
+              Unicamente se permite 1 archivo de facturas por mes (bloqueo automatico tras la carga)
+            </span>
+          </div>
           <div class="upload-card-actions">
-            <button type="button" class="btn-action" id="btn-select-cfdi" onclick="document.getElementById('cfdi-file').click()">
+            <input type="file" id="cfdi-file" accept=".pdf" style="display:none;">
+            <button type="button" class="btn-action btn-action-primary" id="btn-select-cfdi" onclick="document.getElementById('cfdi-file').click()">
               Subir Facturas del SAT
             </button>
             <button type="button" class="btn-action" id="btn-replace-cfdi" style="display:none; color:var(--error);">
               Reemplazar Archivo
             </button>
           </div>
-          <span id="cfdi-status" class="status-msg"></span>
         </div>
-
-        <!-- 2. Cargar N Estados de Cuenta -->
-        <div class="upload-card">
-          <h3>2. Estados de Cuenta Bancarios</h3>
-          <p>Seleccione 1 o varios estados de cuenta (Scotiabank, BBVA, etc.):</p>
-          <input type="file" id="bank-files" accept=".pdf" multiple style="display:none;">
-          <div class="upload-card-actions">
-            <button type="button" class="btn-action" onclick="document.getElementById('bank-files').click()">
-              Subir Estados de Cuenta Bancarios
-            </button>
-          </div>
-          <span id="bank-status" class="status-msg"></span>
-        </div>
+        <span id="cfdi-status" class="status-msg"></span>
       </div>
 
-      <!-- Apartado: Estados de Cuenta Subidos para el Mes -->
+      <!-- 2. Estados de Cuenta Bancarios Registrados y Agregar Mas -->
       <div class="bank-statements-panel" id="bank-statements-section">
         <div class="panel-header">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
-              Estados de Cuenta Bancarios Registrados (<span id="bank-files-count">0</span>)
+              2. Estados de Cuenta Bancarios (<span id="bank-files-count">0</span>)
             </h3>
             <span style="font-size: 11.5px; color: var(--text-muted);">
-              Archivos bancarios asociados al mes seleccionado para la conciliacion
+              Archivos bancarios (BBVA, Scotiabank, etc.) cargados para el mes seleccionado
             </span>
           </div>
-          <button type="button" class="btn-action" onclick="document.getElementById('bank-files').click()" style="font-size: 11.5px;">
-            + Agregar Mas Estados de Cuenta
-          </button>
+          <div class="upload-card-actions">
+            <input type="file" id="bank-files" accept=".pdf" multiple style="display:none;">
+            <button type="button" class="btn-action btn-action-primary" onclick="document.getElementById('bank-files').click()">
+              + Agregar Mas Estados de Cuenta
+            </button>
+          </div>
         </div>
+        <span id="bank-status" class="status-msg" style="margin-bottom: 8px;"></span>
         <div id="bank-files-list" class="bank-files-container">
           <div class="empty-statements">
             No se han subido estados de cuenta para este mes.
