@@ -12,23 +12,26 @@ const reconciliationRoutes = require('./src/routes/reconciliation');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
-// Hash de la contrasena 'admin'
+// Hash de fallback para contrasena admin
 const ADMIN_PASSWORD_HASH = '$2b$10$GbssOZq3ZYpNtOGMVgiswO9pOb0xBg70/3tLd5bNGEDarhtjcf8l2';
 
 // Conectar a MongoDB Atlas y asegurar usuario admin
 const initDatabase = async () => {
   await connectDB();
   try {
-    const existingAdmin = await User.findOne({ username: 'admin' });
+    const existingAdmin = await User.findOne({ username: ADMIN_USERNAME });
     if (!existingAdmin) {
+      const hashedPassword = bcrypt.hashSync(ADMIN_PASSWORD, 10);
       await User.create({
-        username: 'admin',
+        username: ADMIN_USERNAME,
         name: 'Administrador',
-        password: ADMIN_PASSWORD_HASH,
+        password: hashedPassword,
         role: 'Administrador'
       });
-      console.log('[Auth] Usuario admin inicial creado con contrasena hasheada.');
+      console.log(`[Auth] Usuario ${ADMIN_USERNAME} inicial creado con contrasena hasheada.`);
     }
   } catch (err) {
     console.error('[Auth] Error asegurando usuario admin:', err.message);
@@ -105,9 +108,13 @@ app.post('/api/auth/login', async (req, res) => {
       userId = user._id;
       userName = user.name || 'Administrador';
       userRole = user.role || 'Administrador';
-    } else if (loginIdentifier === 'admin' || loginIdentifier === 'admin@empresa.com') {
+    } else if (
+      loginIdentifier === ADMIN_USERNAME.toLowerCase() ||
+      loginIdentifier === 'admin' ||
+      loginIdentifier === 'admin@empresa.com'
+    ) {
       // Fallback si la base de datos esta en modo local
-      isPasswordValid = bcrypt.compareSync(password, ADMIN_PASSWORD_HASH);
+      isPasswordValid = password === ADMIN_PASSWORD || bcrypt.compareSync(password, ADMIN_PASSWORD_HASH);
     }
 
     if (!isPasswordValid) {
@@ -125,7 +132,7 @@ app.post('/api/auth/login', async (req, res) => {
       token,
       user: {
         id: userId,
-        username: 'admin',
+        username: user?.username || ADMIN_USERNAME,
         name: userName,
         role: userRole
       },

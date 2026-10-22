@@ -631,7 +631,7 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
 
     // Validar primero todos los archivos
     for (const file of req.files) {
-      const { movements, detectedPeriods } = await parseBankStatement(
+      const { movements, detectedPeriods, banco, cuenta } = await parseBankStatement(
         file.buffer,
         targetPeriodo.split('-')[0] || '2026'
       );
@@ -643,7 +643,7 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
         });
       }
 
-      uploadedResults.push({ file, movements });
+      uploadedResults.push({ file, movements, banco, cuenta });
     }
 
     // Si todos pasaron la validacion de mes, guardar movimientos y registrar archivo
@@ -680,8 +680,8 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
       const depositos = movements.filter((m) => m.tipo === 'Deposito');
       const totalCargos = retiros.reduce((s, m) => s + (m.monto || 0), 0);
       const totalAbonos = depositos.reduce((s, m) => s + (m.monto || 0), 0);
-      const bancoDetectado = movements[0]?.banco || 'Banco';
-      const cuentaDetectada = movements[0]?.cuenta || '';
+      const bancoDetectado = item.banco || movements[0]?.banco || 'Banco';
+      const cuentaDetectada = item.cuenta || movements[0]?.cuenta || '';
 
       await BankStatementFile.findOneAndUpdate(
         { periodo: targetPeriodo, entidad, nombreArchivo: file.originalname },

@@ -15,6 +15,11 @@ const MONTH_MAP = {
   DIC: '12'
 };
 
+const NUM_TO_MONTH_MAP = {
+  '01': 'ENE', '02': 'FEB', '03': 'MAR', '04': 'ABR', '05': 'MAY', '06': 'JUN',
+  '07': 'JUL', '08': 'AGO', '09': 'SEP', '10': 'OCT', '11': 'NOV', '12': 'DIC'
+};
+
 const knownBBVACargoCodes = new Set([
   'A15', 'I73', 'I74', 'K08', 'K64', 'K65', 'P14', 'P31',
   'R01', 'S39', 'S40', 'T17', 'V43', 'V44', 'V46', 'V47', 'X01'
@@ -138,6 +143,8 @@ const parseBBVAStatement = (text, defaultYear = '2026') => {
   });
 
   return {
+    banco: 'BBVA',
+    cuenta: cuenta ? `Cuenta ${cuenta}` : 'BBVA',
     movements: transactions,
     detectedPeriods: Array.from(detectedPeriodsSet)
   };
@@ -244,6 +251,8 @@ const parseBBVADetalleMovimientos = (text, defaultYear = '2026') => {
   }
 
   return {
+    banco: 'BBVA (Detalle Web)',
+    cuenta: cuenta ? `Cuenta ${cuenta}` : 'BBVA',
     movements,
     detectedPeriods: Array.from(detectedPeriodsSet).sort()
   };
@@ -331,6 +340,8 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
   }
 
   return {
+    banco: 'Scotiabank',
+    cuenta: cuenta ? `Cuenta ${cuenta}` : 'Scotiabank',
     movements: transactions,
     detectedPeriods: Array.from(detectedPeriodsSet)
   };
@@ -422,6 +433,192 @@ const parseScotiabankCreditCardStatement = (text, defaultYear = '2026') => {
   }
 
   return {
+    banco: 'Scotiabank (TDC)',
+    cuenta,
+    movements,
+    detectedPeriods: Array.from(detectedPeriodsSet).sort()
+  };
+};
+
+/**
+ * Parsea estados de cuenta BBVA de Línea de Crédito Digital PyME y Tarjeta Negocios (T Negoc / LCDigital)
+ */
+const parseBBVACreditOrCardStatement = (text, defaultYear = '2026') => {
+  let detectedYear = defaultYear;
+  const detectedPeriodsSet = new Set();
+
+  // 1. Detectar periodo del estado de cuenta (ej: "Del 03/09/26 al 02/10/26" o "Periodo Del ...")
+  const periodoMatch =
+    text.match(/Periodo\s+(?:Del\s+)?(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})\s+al\s+(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/i) ||
+    text.match(/Del\s+(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})\s+al\s+(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/i);
+
+  if (periodoMatch) {
+    const yStart = periodoMatch[3].length === 2 ? '20' + periodoMatch[3] : periodoMatch[3];
+    const mStart = periodoMatch[2];
+    const yEnd = periodoMatch[6].length === 2 ? '20' + periodoMatch[6] : periodoMatch[6];
+    const mEnd = periodoMatch[5];
+
+    detectedYear = yStart;
+    detectedPeriodsSet.add(`${yStart}-${mStart}`);
+    detectedPeriodsSet.add(`${yEnd}-${mEnd}`);
+  }
+
+  // Detectar Fecha de Corte (ej: "Fecha de Corte 02/10/26")
+  const corteMatch = text.match(/Fecha\s+de\s+Corte\s+(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/i);
+  if (corteMatch) {
+    const corteYear = corteMatch[3].length === 2 ? '20' + corteMatch[3] : corteMatch[3];
+    const corteMonth = corteMatch[2];
+    detectedPeriodsSet.add(`${corteYear}-${corteMonth}`);
+  }
+
+  // 2. Detectar Banco y Cuenta
+  let banco = 'BBVA';
+  let cuenta = '';
+
+  const isLineaCreditoPyme = /L[ií]nea\s+Cr[eé]dito\s+Digital\s+PyME/i.test(text);
+  const isTarjetaNegocios = /T\s*Negoc(?:\s*\/\s*LCDigital)?/i.test(text);
+
+  if (isLineaCreditoPyme) {
+    banco = 'BBVA (Línea Crédito PyME)';
+    const creditoMatch =
+      text.match(/No\.\s+de\s+Cr[eé]dito\s*([0-9\s]{16,22})/i) ||
+      text.match(/Cr[eé]dito\s*([0-9\s]{16,22})/i);
+    if (creditoMatch) {
+      const raw = creditoMatch[1].replace(/\s+/g, '');
+      cuenta = `Crédito ${raw.slice(-4)}`;
+    }
+  } else if (isTarjetaNegocios) {
+    banco = 'BBVA (Tarjeta Negocios)';
+    const tarjetaMatch =
+      text.match(/No\.\s+de\s+Tarjeta\s*([0-9\s]{16,22})/i) ||
+      text.match(/Tarjeta\s+Titular\s*([0-9\s]{16,22})/i) ||
+      text.match(/No\.\s+Tarjeta\s*([0-9\s]{16,22})/i);
+    if (tarjetaMatch) {
+      const raw = tarjetaMatch[1].replace(/\s+/g, '');
+      cuenta = `Tarjeta ${raw.slice(-4)}`;
+    }
+  }
+
+  if (!cuenta) {
+    const clabeMatch = text.match(/Cuenta\s+CLABE\s*([0-9\s]{18,22})/i);
+    if (clabeMatch) {
+      const raw = clabeMatch[1].replace(/\s+/g, '');
+      cuenta = `CLABE ${raw.slice(-4)}`;
+    }
+  }
+
+  // 3. Parsear líneas de movimientos
+  // Formato: FECHA_AUT FECHA_APL CONCEPTO [RFC] [REFERENCIA] [CARGOS] [ABONOS]
+  // Ejemplo: "03/09/26 04/09/26 FERRE ABAS MAX CHETUM AMA 0512139J5 ******9851 $ 2,177.99"
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  const rowRegex = /^(\d{2}[\/\-]\d{2}[\/\-]\d{2,4})\s+(\d{2}[\/\-]\d{2}[\/\-]\d{2,4})\s+(.+)$/;
+  const amountRegex = /(?:\$\s*)?([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})(?:\s+(?:\$\s*)?([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2}))?\s*$/;
+
+  const movements = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (/^FECHA\s+AUTORIZACION/i.test(line)) continue;
+    if (/^TOTAL\s+IMPORTES/i.test(line)) continue;
+
+    const rowMatch = line.match(rowRegex);
+    if (!rowMatch) continue;
+
+    const fechaAut = rowMatch[1];
+    const fechaApl = rowMatch[2];
+    const rest = rowMatch[3].trim();
+
+    // Extraer montos del final de la línea
+    const amtMatch = rest.match(amountRegex);
+    if (!amtMatch) continue;
+
+    const amt1 = parseFloat(amtMatch[1].replace(/,/g, ''));
+    const amt2 = amtMatch[2] ? parseFloat(amtMatch[2].replace(/,/g, '')) : null;
+
+    let remainder = rest.substring(0, amtMatch.index).trim();
+
+    // Extraer referencia (ej: "******8803", "******9851" o número de referencia)
+    let referencia = '';
+    const refMatch = remainder.match(/(?:\*{3,}[0-9A-Z]+|\b\d{6,12}\b)$/i);
+    if (refMatch) {
+      referencia = refMatch[0];
+      remainder = remainder.substring(0, refMatch.index).trim();
+    }
+
+    // Extraer RFC si existe en el renglón
+    let rfc = null;
+    let concepto = remainder;
+
+    const rfcEndMatch = remainder.match(/\b([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})$/i);
+    if (rfcEndMatch) {
+      rfc = `${rfcEndMatch[1]}${rfcEndMatch[2]}${rfcEndMatch[3]}`.replace(/\s+/g, '').toUpperCase();
+      concepto = remainder.substring(0, rfcEndMatch.index).trim();
+    } else {
+      const rfcAnyMatch = remainder.match(/\b([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b/i);
+      if (rfcAnyMatch) {
+        rfc = `${rfcAnyMatch[1]}${rfcAnyMatch[2]}${rfcAnyMatch[3]}`.replace(/\s+/g, '').toUpperCase();
+      }
+    }
+
+    // Determinar fechas
+    const parts = fechaAut.split(/[\/\-]/);
+    const dAut = parts[0];
+    const mAut = parts[1];
+    const yAutRaw = parts[2] || defaultYear;
+    const yAut = yAutRaw.length === 2 ? '20' + yAutRaw : yAutRaw;
+    const monthNum = mAut;
+    const monthStr = NUM_TO_MONTH_MAP[monthNum] || 'SEP';
+    const mvPeriodo = `${yAut}-${monthNum}`;
+
+    detectedPeriodsSet.add(mvPeriodo);
+
+    // Determinar si es Cargo (Retiro) o Abono (Deposito)
+    let isRetiro = true;
+    let finalAmount = amt1;
+
+    if (amt2 !== null) {
+      if (amt1 > 0 && amt2 === 0) {
+        isRetiro = true;
+        finalAmount = amt1;
+      } else if (amt1 === 0 && amt2 > 0) {
+        isRetiro = false;
+        finalAmount = amt2;
+      } else {
+        isRetiro = amt1 > 0;
+        finalAmount = amt1 > 0 ? amt1 : amt2;
+      }
+    } else {
+      const isAbono = /(?:^|\s)(?:PAGO|ABONO|DEPOSITO|DEVOLUCI[OÓ]N|REEMBOLSO|BONIFICACI[OÓ]N|TRASPASO\s+A\s+FAVOR|SU\s+PAGO\s+EN)(?:\s|$)/i.test(
+        concepto
+      );
+      isRetiro = !isAbono;
+      finalAmount = amt1;
+    }
+
+    movements.push({
+      banco,
+      cuenta,
+      periodo: mvPeriodo,
+      fecha: `${dAut}-${monthStr}-${yAut}`,
+      fechaNormalizada: new Date(Number(yAut), Number(monthNum) - 1, Number(dAut)),
+      tipo: isRetiro ? 'Retiro' : 'Deposito',
+      monto: finalAmount,
+      saldo: 0,
+      rfcDetectado: rfc,
+      concepto: (concepto || rest).substring(0, 250),
+      origenReferencia: referencia,
+      conciliado: false
+    });
+  }
+
+  return {
+    banco,
+    cuenta,
     movements,
     detectedPeriods: Array.from(detectedPeriodsSet).sort()
   };
@@ -431,7 +628,7 @@ const parseScotiabankCreditCardStatement = (text, defaultYear = '2026') => {
  * Parsea un estado de cuenta bancario detectando automaticamente la institucion bancaria y formato
  * @param {Buffer} pdfBuffer - Buffer del archivo PDF
  * @param {string} defaultYear - Anio default (ej: "2026")
- * @returns {Promise<{movements: Array<Object>, detectedPeriods: Array<string>}>}
+ * @returns {Promise<{movements: Array<Object>, detectedPeriods: Array<string>, banco?: string, cuenta?: string}>}
  */
 const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
   const parser = new PDFParse({ data: pdfBuffer });
@@ -447,7 +644,18 @@ const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
     return parseBBVADetalleMovimientos(text, defaultYear);
   }
 
-  // 2. Deteccion de BBVA Oficial (Centralizadora / Maestra Pyme / Estado de Cuenta)
+  // 2. Deteccion de BBVA Línea Crédito Digital PyME y T Negoc / LCDigital (Tarjeta Negocios)
+  const isBBVALCDigital =
+    /L[ií]nea\s+Cr[eé]dito\s+Digital\s+PyME/i.test(text) ||
+    /T\s*Negoc(?:\s*\/\s*LCDigital)?/i.test(text) ||
+    /LCDigital/i.test(text) ||
+    (/Movimientos\s+Efectuados\s+(?:Cr[eé]dito|Tarjeta\s+Titular)/i.test(text) && /BBVA/i.test(text));
+
+  if (isBBVALCDigital) {
+    return parseBBVACreditOrCardStatement(text, defaultYear);
+  }
+
+  // 3. Deteccion de BBVA Oficial (Centralizadora / Maestra Pyme / Estado de Cuenta)
   const isBBVA =
     /BBVA/i.test(text.substring(0, 1500)) ||
     /MAESTRA PYME/i.test(text.substring(0, 1500)) ||
@@ -458,7 +666,7 @@ const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
     return parseBBVAStatement(text, defaultYear);
   }
 
-  // 3. Deteccion de Tarjeta de Credito Scotiabank (Scotia Travel, Scotia Rewards, etc.)
+  // 4. Deteccion de Tarjeta de Credito Scotiabank (Scotia Travel, Scotia Rewards, etc.)
   const isScotiabankCreditCard =
     /(?:Scotia\s*(?:Travel|Rewards)|Tarjeta\s+de\s+Cr[eé]dito\s+Scotiabank|TU\s+PAGO\s+REQUERIDO\s+ESTE\s+PERIODO|CARGOS,\s*ABONOS\s*Y\s*COMPRAS\s*REGULARES)/i.test(text) ||
     (/\b\d{2}-[a-z]{3}-\d{4}\s+\d{2}-[a-z]{3}-\d{4}\b/i.test(text) && /[+-]\s*\$?[0-9,]+\.[0-9]{2}/.test(text));
@@ -467,10 +675,15 @@ const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
     return parseScotiabankCreditCardStatement(text, defaultYear);
   }
 
-  // 4. Scotiabank tradicional (Cuenta de Cheques / Débito)
+  // 5. Scotiabank tradicional (Cuenta de Cheques / Débito)
   return parseScotiabankStatement(text, defaultYear);
 };
 
 module.exports = {
-  parseBankStatement
+  parseBankStatement,
+  parseBBVACreditOrCardStatement,
+  parseBBVAStatement,
+  parseBBVADetalleMovimientos,
+  parseScotiabankStatement,
+  parseScotiabankCreditCardStatement
 };
