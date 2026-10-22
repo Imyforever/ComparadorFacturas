@@ -1302,6 +1302,7 @@ body.login-page {
 .compare-table-container {
   max-height: 250px;
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: 3px;
   margin-top: 6px;

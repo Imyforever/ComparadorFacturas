@@ -629,12 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <td style="text-align:center;">${badgeHtml}</td>
             <td>${paymentDetailHtml}</td>
             <td>${noteContent}</td>
-            <td style="text-align:center; white-space:nowrap;">
-              ${inv.estadoPago !== 'Pagada' && inv.estadoSat !== 'Cancelado' ? `
-                <button type="button" class="btn-action-small btn-action-primary" onclick="openLinkPaymentModal('${inv.uuid}')" style="margin-right:4px;" title="Vincular con pago bancario o marcar como pagada">
-                  Pagar
-                </button>
-              ` : ''}
+            <td style="text-align:center;">
               <button type="button" class="btn-action-small" onclick="openEditModal('${inv.uuid}')" title="Editar estado y notas">
                 Editar
               </button>
@@ -1600,7 +1595,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (candidates.length === 0) {
       compareInvoiceRows.innerHTML = `
         <tr>
-          <td colspan="6" style="text-align: center; padding: 22px; color: var(--text-muted);">
+          <td colspan="3" style="text-align: center; padding: 22px; color: var(--text-muted);">
             No se encontraron facturas recibidas pendientes con monto similar a ${formatMoney(bankMonto)}.
             <div style="margin-top: 8px;">
               <button type="button" class="btn-action-small" onclick="filterCompareCandidates(false)">
@@ -1615,26 +1610,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     compareInvoiceRows.innerHTML = candidates
       .map((inv) => {
-        const diff = Math.abs((inv.total || 0) - bankMonto);
-        const isExact = diff < 0.01;
-        const diffBadge = isExact
-          ? '<span class="badge-paid" style="font-size: 11px;">Monto Exacto</span>'
-          : `<span style="font-size: 11.5px; color: ${diff < 1 ? 'var(--primary)' : 'var(--text-muted)'}; font-weight: 600;">$${diff.toFixed(2)}</span>`;
-
         const isCurrentlyPaid = inv.estadoPago === 'Pagada';
 
         return `
           <tr>
             <td>
-              <strong>${inv.emisor || 'Sin emisor'}</strong>
-              <div style="font-size:10.5px; font-family:monospace; color:var(--text-muted);">${inv.uuid.substring(0, 18)}...</div>
+              <div style="font-weight:700; color:var(--text-main); font-size:12.5px;">${inv.emisor || 'Sin emisor'}</div>
+              <div style="font-size:11px; color:var(--text-muted); display:flex; gap:8px; align-items:center; margin-top:2px; flex-wrap:wrap;">
+                <span>Total: <strong style="color:var(--primary);">${formatMoney(inv.total)}</strong></span>
+                <span style="font-family:monospace;">${inv.uuid.substring(0, 14)}...</span>
+              </div>
             </td>
-            <td><code style="font-size:11px;">${inv.rfcEmisor || '-'}</code></td>
-            <td style="font-size:11.5px;">${inv.fechaEmision ? inv.fechaEmision.split('T')[0] : '-'}</td>
-            <td style="text-align:right; font-weight:700;">${formatMoney(inv.total)}</td>
-            <td style="text-align:right;">${diffBadge}</td>
-            <td style="text-align:center;">
-              <button type="button" class="btn-action-small btn-action-primary" onclick="linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')" style="font-size:11px; padding:3px 8px;">
+            <td><code style="font-size:11.5px;">${inv.rfcEmisor || '-'}</code></td>
+            <td style="text-align:center; white-space:nowrap;">
+              <button type="button" class="btn-action-small btn-action-primary" onclick="linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')" style="font-size:11px; padding:4px 10px;">
                 ${isCurrentlyPaid ? 'Reasignar' : 'Vincular'}
               </button>
             </td>
