@@ -16,25 +16,19 @@
       <!-- Barra Superior -->
       <div class="dash-topbar">
         <div class="topbar-header">
-          <h1>
-            Conciliacion de Facturas vs Estados de Cuenta
-          </h1>
-          <span>
-            Usuario: <strong id="user-name">admin</strong>
-          </span>
+          <h1>Conciliación de Facturas</h1>
+          <span>Usuario: <strong id="user-name">admin</strong></span>
         </div>
 
         <div class="period-controls">
           <label for="period-select" style="font-size: 12px; font-weight: 600;">Mes:</label>
           <select id="period-select" class="select-period"></select>
-          <button id="btn-export-csv" class="btn-action" title="Exportar reporte conciliado a Excel CSV">
-            Exportar CSV
-          </button>
-          <button id="btn-logout" class="btn-logout">Cerrar Sesion</button>
+          <button id="btn-export-csv" class="btn-action" title="Exportar CSV">Exportar CSV</button>
+          <button id="btn-logout" class="btn-logout">Salir</button>
         </div>
       </div>
 
-      <!-- Barra de Pestanias / Cuentas por Mes (ej: Personal, Empresa, etc.) -->
+      <!-- Barra de Pestanias / Cuentas por Mes -->
       <div class="entity-tabs-panel">
         <div class="entity-tabs-wrapper">
           <div class="entity-tabs-list" id="entity-tabs-list">
@@ -42,60 +36,60 @@
           </div>
           <div class="entity-tabs-actions">
             <button type="button" class="btn-add-tab" id="btn-open-create-tab" onclick="openCreateTabModal()">
-              + Nueva Pestania
+              + Nueva Pestaña
             </button>
           </div>
         </div>
       </div>
 
-      <!-- 1. Cargar Facturas SAT (1 solo archivo por mes y pestania) -->
+      <!-- 1. Cargar Facturas SAT -->
       <div class="cfdi-upload-panel">
         <div class="panel-header">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
-              1. Facturas Recibidas
+              1. Facturas SAT
             </h3>
             <span style="font-size: 11.5px; color: var(--text-muted);">
-              Unicamente se permite 1 archivo de facturas por mes (bloqueo automatico tras la carga)
+              PDF de consulta CFDI del SAT (1 por mes)
             </span>
           </div>
           <div class="upload-card-actions">
             <input type="file" id="cfdi-file" accept=".pdf" style="display:none;">
             <button type="button" class="btn-action btn-action-primary" id="btn-select-cfdi"
               onclick="document.getElementById('cfdi-file').click()">
-              Subir Facturas del SAT
+              Subir Facturas
             </button>
             <button type="button" class="btn-action" id="btn-replace-cfdi" style="display:none; color:var(--error);">
-              Reemplazar Archivo
+              Reemplazar
             </button>
           </div>
         </div>
         <span id="cfdi-status" class="status-msg"></span>
       </div>
 
-      <!-- 2. Estados de Cuenta Bancarios Registrados y Agregar Mas -->
+      <!-- 2. Estados de Cuenta Bancarios -->
       <div class="bank-statements-panel" id="bank-statements-section">
         <div class="panel-header">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
-              2. Estados de Cuenta Bancarios (<span id="bank-files-count">0</span>)
+              2. Estados de Cuenta (<span id="bank-files-count">0</span>)
             </h3>
             <span style="font-size: 11.5px; color: var(--text-muted);">
-              Archivos bancarios (BBVA, Scotiabank, etc.) cargados para el mes seleccionado
+              PDFs bancarios del mes (BBVA, Scotiabank, etc.)
             </span>
           </div>
           <div class="upload-card-actions">
             <input type="file" id="bank-files" accept=".pdf" multiple style="display:none;">
             <button type="button" class="btn-action btn-action-primary"
               onclick="document.getElementById('bank-files').click()">
-              + Agregar Mas Estados de Cuenta
+              + Subir Estado de Cuenta
             </button>
           </div>
         </div>
         <span id="bank-status" class="status-msg" style="margin-bottom: 8px;"></span>
         <div id="bank-files-list" class="bank-files-container">
           <div class="empty-statements">
-            No se han subido estados de cuenta para este mes.
+            Sin estados de cuenta en este mes.
           </div>
         </div>
       </div>
@@ -103,33 +97,33 @@
       <!-- Tarjetas de Resumen Financiero -->
       <div class="summary-grid">
         <div class="summary-box box-total">
-          <div class="summary-title">Facturas Recibidas</div>
+          <div class="summary-title">Total Facturado</div>
           <div id="stat-total-amount" class="summary-amount">$0.00</div>
           <div id="stat-total-count" class="summary-count">0 facturas</div>
         </div>
 
         <div class="summary-box box-paid">
-          <div class="summary-title" style="color:var(--primary);">Facturas Pagadas</div>
+          <div class="summary-title" style="color:var(--primary);">Pagadas</div>
           <div id="stat-paid-amount" class="summary-amount" style="color:var(--primary);">$0.00</div>
-          <div id="stat-paid-count" class="summary-count">0 pagadas con comprobante bancario</div>
+          <div id="stat-paid-count" class="summary-count">0 pagadas</div>
         </div>
 
         <div class="summary-box box-unpaid">
-          <div class="summary-title" style="color:var(--error);">Facturas No Pagadas</div>
+          <div class="summary-title" style="color:var(--error);">No Pagadas</div>
           <div id="stat-unpaid-amount" class="summary-amount" style="color:var(--error);">$0.00</div>
-          <div id="stat-unpaid-count" class="summary-count">0 pendientes de pago</div>
+          <div id="stat-unpaid-count" class="summary-count">0 pendientes</div>
         </div>
 
         <div class="summary-box box-canceled">
-          <div class="summary-title">Facturas Canceladas</div>
+          <div class="summary-title">Canceladas</div>
           <div id="stat-canceled-amount" class="summary-amount" style="color:var(--text-muted);">$0.00</div>
-          <div id="stat-canceled-count" class="summary-count">0 canceladas ante el SAT</div>
+          <div id="stat-canceled-count" class="summary-count">0 canceladas</div>
         </div>
 
-        <div class="summary-box box-unmatched-bank" id="box-unmatched-bank" onclick="scrollToUnmatchedSection()" title="Ver pagos bancarios que no aparecen en las facturas recibidas del SAT">
-          <div class="summary-title" style="color:#b45309;">Pagos sin Factura SAT</div>
+        <div class="summary-box box-unmatched-bank" id="box-unmatched-bank" onclick="scrollToUnmatchedSection()" title="Ver pagos bancarios sin factura SAT">
+          <div class="summary-title" style="color:#b45309;">Sin Factura SAT</div>
           <div id="stat-unmatched-amount" class="summary-amount" style="color:#b45309;">$0.00</div>
-          <div id="stat-unmatched-count" class="summary-count">0 pagos pendientes</div>
+          <div id="stat-unmatched-count" class="summary-count">0 movimientos</div>
         </div>
       </div>
 
@@ -138,53 +132,53 @@
         <div class="filter-tabs">
           <button type="button" class="filter-btn active" data-filter="all">Todas</button>
           <button type="button" class="filter-btn" data-filter="pagadas">Pagadas</button>
-          <button type="button" class="filter-btn" data-filter="no_pagadas">No Pagadas (Pendientes)</button>
-          <button type="button" class="filter-btn" data-filter="egresos">Egresos (Notas de Credito)</button>
+          <button type="button" class="filter-btn" data-filter="no_pagadas">No Pagadas</button>
+          <button type="button" class="filter-btn" data-filter="egresos">Notas de Crédito</button>
           <button type="button" class="filter-btn" data-filter="canceladas">Canceladas</button>
         </div>
 
         <!-- Alternador de Vista: Detallada vs Agrupada por Emisor -->
         <div class="view-mode-toggle">
-          <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas individuales analizadas">
-            Vista Detallada
+          <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas">
+            Detalle
           </button>
-          <button type="button" class="view-mode-btn" id="btn-view-grouped" title="Ver agrupacion y resumen de emisores analizados">
-            Vista por Emisor
+          <button type="button" class="view-mode-btn" id="btn-view-grouped" title="Agrupar por emisor">
+            Por Emisor
           </button>
         </div>
       </div>
 
-      <!-- Filtro Especifico por Campo con Lista de Valores Analizados en Automatico -->
+      <!-- Filtro por Campo -->
       <div class="field-filter-panel">
         <div class="field-filter-grid">
           <div class="field-filter-item">
-            <label for="filter-field-select" class="field-filter-label">Campo a Filtrar:</label>
+            <label for="filter-field-select" class="field-filter-label">Campo:</label>
             <select id="filter-field-select" class="form-input field-select">
-              <option value="emisor" selected>Emisor / Proveedor</option>
-              <option value="rfcEmisor">RFC Emisor</option>
-              <option value="uuid">Folio Fiscal (UUID)</option>
-              <option value="estadoPago">Estado de Pago</option>
-              <option value="banco">Banco / Evidencia</option>
-              <option value="observaciones">Observaciones</option>
+              <option value="emisor" selected>Proveedor</option>
+              <option value="rfcEmisor">RFC</option>
+              <option value="uuid">Folio (UUID)</option>
+              <option value="estadoPago">Estado</option>
+              <option value="banco">Banco</option>
+              <option value="observaciones">Notas</option>
               <option value="all">Todos los campos</option>
             </select>
           </div>
 
           <div class="field-filter-item field-filter-item-large">
             <label for="filter-analyzed-select" class="field-filter-label" id="label-analyzed-select">
-              Emisores Analizados en este Mes (0):
+              Emisores (0):
             </label>
             <select id="filter-analyzed-select" class="form-input analyzed-select">
-              <option value="">-- Seleccionar emisor analizado (0) --</option>
+              <option value="">-- Todos los emisores --</option>
             </select>
           </div>
 
           <div class="field-filter-item field-filter-item-search">
-            <label for="search-input" class="field-filter-label" id="label-search-input">Escribir o Buscar (ej: walmart):</label>
+            <label for="search-input" class="field-filter-label" id="label-search-input">Buscar:</label>
             <div class="search-input-wrapper">
-              <input type="text" id="search-input" class="search-input" list="analyzed-datalist" placeholder="Escribir o buscar (ej. walmart)..." autocomplete="off">
+              <input type="text" id="search-input" class="search-input" list="analyzed-datalist" placeholder="Buscar..." autocomplete="off">
               <datalist id="analyzed-datalist"></datalist>
-              <button type="button" id="btn-clear-search" class="btn-clear-search" title="Limpiar filtro" style="display:none;">&times;</button>
+              <button type="button" id="btn-clear-search" class="btn-clear-search" title="Limpiar" style="display:none;">&times;</button>
             </div>
           </div>
         </div>
@@ -193,62 +187,62 @@
       <!-- Indicador Informativo de Filtro Activo -->
       <div id="active-filter-indicator" class="active-filter-banner" style="display: none;">
         <div class="active-filter-text">
-          <span class="active-filter-tag">Filtro Activo</span>
+          <span class="active-filter-tag">Filtro</span>
           <span class="active-filter-field" id="indicator-field">Emisor</span>:
-          <strong id="indicator-query">"walmart"</strong>
-          <span class="active-filter-stats" id="indicator-stats">(0 facturas analizadas)</span>
+          <strong id="indicator-query">"query"</strong>
+          <span class="active-filter-stats" id="indicator-stats">(0 facturas)</span>
         </div>
-        <button type="button" class="btn-clear-banner" id="btn-clear-banner">Quitar Filtro</button>
+        <button type="button" class="btn-clear-banner" id="btn-clear-banner">Limpiar</button>
       </div>
 
-      <!-- Tabla 1: Vista Detallada de Facturas con Enumeracion -->
+      <!-- Tabla 1: Vista Detallada de Facturas -->
       <div class="table-container" id="table-container-detail">
         <table class="table-excel">
           <thead>
             <tr>
               <th style="width: 45px; text-align: center;">No.</th>
-              <th style="width: 140px;">Folio Fiscal (UUID)</th>
-              <th>Emisor / Proveedor</th>
-              <th style="width: 120px;">RFC Emisor</th>
+              <th style="width: 140px;">Folio (UUID)</th>
+              <th>Proveedor</th>
+              <th style="width: 120px;">RFC</th>
               <th style="width: 95px;">Fecha</th>
               <th style="width: 105px; text-align: right;">Total</th>
-              <th style="width: 85px;">Efecto</th>
-              <th style="width: 100px; text-align: center;">Estado Pago</th>
-              <th style="width: 220px;">Evidencia Bancaria</th>
-              <th style="width: 180px;">Observaciones</th>
-              <th style="width: 80px; text-align: center;">Accion</th>
+              <th style="width: 85px;">Tipo</th>
+              <th style="width: 100px; text-align: center;">Estado</th>
+              <th style="width: 220px;">Pago Bancario</th>
+              <th style="width: 180px;">Notas</th>
+              <th style="width: 80px; text-align: center;">Acción</th>
             </tr>
           </thead>
           <tbody id="invoice-rows">
             <tr>
               <td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">
-                Cargando datos de conciliacion...
+                Cargando datos...
               </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <!-- Tabla 2: Vista Agrupada por Emisor Analizado -->
+      <!-- Tabla 2: Vista Agrupada por Emisor -->
       <div class="table-container" id="table-container-grouped" style="display: none;">
         <table class="table-excel">
           <thead>
             <tr>
               <th style="width: 45px; text-align: center;">No.</th>
-              <th>Emisor / Proveedor</th>
-              <th style="width: 130px;">RFC Emisor</th>
-              <th style="width: 125px; text-align: center;">Facturas Analizadas</th>
-              <th style="width: 130px; text-align: right;">Total Facturado</th>
-              <th style="width: 140px;">Pagadas en Banco</th>
-              <th style="width: 140px;">Pendientes de Pago</th>
+              <th>Proveedor</th>
+              <th style="width: 130px;">RFC</th>
+              <th style="width: 100px; text-align: center;">Facturas</th>
+              <th style="width: 130px; text-align: right;">Total</th>
+              <th style="width: 130px;">Pagadas</th>
+              <th style="width: 130px;">Pendientes</th>
               <th style="width: 95px; text-align: center;">Canceladas</th>
-              <th style="width: 100px; text-align: center;">Accion</th>
+              <th style="width: 90px; text-align: center;">Acción</th>
             </tr>
           </thead>
           <tbody id="grouped-rows">
             <tr>
               <td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">
-                Sin emisores analizados para este mes.
+                Sin emisores en este mes.
               </td>
             </tr>
           </tbody>
@@ -261,25 +255,25 @@
         <span id="showing-count">Mostrando 0 facturas</span>
       </div>
 
-      <!-- 3. Apartado de Pagos / Movimientos Bancarios No Encontrados en Facturas Recibidas -->
+      <!-- 3. Pagos Bancarios sin Factura SAT -->
       <div class="unmatched-bank-panel" id="unmatched-bank-section">
         <div class="panel-header">
           <div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <h3 style="font-size: 14px; font-weight: 700; color: var(--text-main); margin: 0;">
-                Pagos Bancarios no Encontrados en Facturas Recibidas (<span id="unmatched-count-header">0</span>)
+                Movimientos sin Factura SAT (<span id="unmatched-count-header">0</span>)
               </h3>
               <span class="unmatched-total-badge" id="unmatched-total-badge">$0.00</span>
             </div>
             <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 3px;">
-              Cargos y retiros del estado de cuenta que no coinciden con ninguna factura recibida del SAT. Compara manualmente o vincula con una factura pendiente.
+              Cargos del banco que no coinciden con facturas del SAT.
             </span>
           </div>
 
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <input type="text" id="unmatched-search-input" class="search-input" style="width: 230px;" placeholder="Buscar en pagos bancarios..." autocomplete="off">
+            <input type="text" id="unmatched-search-input" class="search-input" style="width: 200px;" placeholder="Buscar movimiento..." autocomplete="off">
             <button type="button" class="btn-action" id="btn-toggle-unmatched-table">
-              Ocultar / Mostrar
+              Mostrar / Ocultar
             </button>
           </div>
         </div>
@@ -290,18 +284,18 @@
               <tr>
                 <th style="width: 45px; text-align: center;">No.</th>
                 <th style="width: 95px;">Fecha</th>
-                <th style="width: 120px;">Banco / Cuenta</th>
-                <th>Concepto Bancario / Referencia</th>
-                <th style="width: 125px;">RFC Detectado</th>
-                <th style="width: 110px; text-align: right;">Monto Retiro</th>
-                <th style="width: 130px; text-align: center;">Estado</th>
-                <th style="width: 160px; text-align: center;">Accion Manual</th>
+                <th style="width: 120px;">Cuenta</th>
+                <th>Concepto / Referencia</th>
+                <th style="width: 125px;">RFC</th>
+                <th style="width: 110px; text-align: right;">Monto</th>
+                <th style="width: 110px; text-align: center;">Estado</th>
+                <th style="width: 130px; text-align: center;">Acción</th>
               </tr>
             </thead>
             <tbody id="unmatched-bank-rows">
               <tr>
                 <td colspan="8" style="text-align: center; padding: 20px; color: var(--text-muted);">
-                  No hay pagos bancarios pendientes en este periodo y pestania.
+                  Sin movimientos bancarios pendientes.
                 </td>
               </tr>
             </tbody>
@@ -311,26 +305,26 @@
     </div>
   </div>
 
-  <!-- Modal para Editar Estado y Observaciones de una Factura -->
+  <!-- Modal para Editar Factura -->
   <div id="edit-invoice-modal" class="modal-backdrop hidden">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Editar Estado y Observaciones de Factura</h3>
+        <h3>Editar Factura</h3>
         <button type="button" class="btn-close-modal" onclick="closeEditModal()">&times;</button>
       </div>
       <div class="modal-body">
         <div class="modal-info-box">
           <div><strong>Proveedor:</strong> <span id="modal-emisor">-</span></div>
-          <div style="margin-top:2px;"><strong>Folio UUID:</strong> <code id="modal-uuid" style="font-size:11px;">-</code></div>
+          <div style="margin-top:2px;"><strong>Folio:</strong> <code id="modal-uuid" style="font-size:11px;">-</code></div>
           <div style="display:flex; justify-content:space-between; margin-top:6px; flex-wrap:wrap; gap:6px;">
             <span><strong>Total:</strong> <span id="modal-total" style="font-weight:700; color:var(--text-main);">$0.00</span></span>
             <span><strong>Fecha:</strong> <span id="modal-fecha">-</span></span>
-            <span><strong>Efecto:</strong> <span id="modal-efecto">-</span></span>
+            <span><strong>Tipo:</strong> <span id="modal-efecto">-</span></span>
           </div>
         </div>
 
         <div class="form-group" style="margin-top:14px;">
-          <label for="modal-estado-pago" class="form-label">Estado de Pago:</label>
+          <label for="modal-estado-pago" class="form-label">Estado:</label>
           <select id="modal-estado-pago" class="form-input">
             <option value="Pagada">Pagada</option>
             <option value="No Pagada">No Pagada</option>
@@ -341,85 +335,85 @@
         </div>
 
         <div class="form-group">
-          <label for="modal-observaciones" class="form-label">Observaciones:</label>
-          <textarea id="modal-observaciones" class="form-input modal-textarea" rows="3" placeholder="Ejemplo: Pagado en efectivo en sucursal, descuento acordado, pago con cheque 492, aclaracion pendiente..."></textarea>
+          <label for="modal-observaciones" class="form-label">Notas:</label>
+          <textarea id="modal-observaciones" class="form-input modal-textarea" rows="3" placeholder="Nota o aclaración..."></textarea>
         </div>
 
         <span id="modal-status" class="status-msg"></span>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn-action" id="btn-reset-auto" onclick="resetInvoiceAuto()" style="color:var(--text-muted); font-size:11.5px;" title="Revertir cambios manuales y usar conciliacion bancaria automatica">
-          Restablecer a Automatico
+        <button type="button" class="btn-action" id="btn-reset-auto" onclick="resetInvoiceAuto()" style="color:var(--text-muted); font-size:11.5px;" title="Restablecer conciliación automática">
+          Restablecer
         </button>
         <div style="display:flex; gap:8px;">
           <button type="button" class="btn-action" onclick="closeEditModal()">Cancelar</button>
           <button type="button" class="btn-action btn-action-primary" id="btn-save-invoice" onclick="saveInvoiceEdit()">
-            Guardar Cambios
+            Guardar
           </button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Modal para Crear Nueva Pestania -->
+  <!-- Modal para Crear Nueva Pestaña -->
   <div id="create-tab-modal" class="modal-backdrop hidden">
     <div class="modal-card" style="max-width: 440px;">
       <div class="modal-header">
-        <h3>Crear Nueva Pestania</h3>
+        <h3>Nueva Pestaña</h3>
         <button type="button" class="btn-close-modal" onclick="closeCreateTabModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-          Cree una pestania independiente para separar y conciliar facturas y estados de cuenta (ejemplo: Mi Empresa, Sucursal Centro, etc.) en este mes (<strong id="modal-create-tab-period">-</strong>).
+          Crea una pestaña para separar facturas y cuentas de este mes (<strong id="modal-create-tab-period">-</strong>).
         </p>
         <div class="form-group">
-          <label for="input-new-tab-name" class="form-label">Nombre de la Pestania:</label>
-          <input type="text" id="input-new-tab-name" class="form-input" placeholder="Ejemplo: Mi Empresa" maxlength="40">
+          <label for="input-new-tab-name" class="form-label">Nombre:</label>
+          <input type="text" id="input-new-tab-name" class="form-input" placeholder="Ej: Empresa" maxlength="40">
         </div>
         <span id="create-tab-status" class="status-msg"></span>
       </div>
       <div class="modal-footer" style="justify-content: flex-end;">
         <button type="button" class="btn-action" onclick="closeCreateTabModal()">Cancelar</button>
         <button type="button" class="btn-action btn-action-primary" id="btn-submit-create-tab" onclick="submitCreateTab()">
-          Crear Pestania
+          Crear
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Modal para Renombrar Pestania -->
+  <!-- Modal para Renombrar Pestaña -->
   <div id="rename-tab-modal" class="modal-backdrop hidden">
     <div class="modal-card" style="max-width: 440px;">
       <div class="modal-header">
-        <h3>Renombrar Pestania</h3>
+        <h3>Renombrar Pestaña</h3>
         <button type="button" class="btn-close-modal" onclick="closeRenameTabModal()">&times;</button>
       </div>
       <div class="modal-body">
         <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-          Ingrese el nuevo nombre para la pestania <strong id="modal-rename-current-name">-</strong>. Las facturas y estados de cuenta asociados se actualizaran automaticamente.
+          Nuevo nombre para <strong id="modal-rename-current-name">-</strong>:
         </p>
         <div class="form-group">
-          <label for="input-rename-tab-name" class="form-label">Nuevo Nombre:</label>
-          <input type="text" id="input-rename-tab-name" class="form-input" placeholder="Ejemplo: Empresa Principal" maxlength="40">
+          <label for="input-rename-tab-name" class="form-label">Nombre:</label>
+          <input type="text" id="input-rename-tab-name" class="form-input" placeholder="Ej: Empresa Principal" maxlength="40">
         </div>
         <span id="rename-tab-status" class="status-msg"></span>
       </div>
       <div class="modal-footer" style="justify-content: flex-end;">
         <button type="button" class="btn-action" onclick="closeRenameTabModal()">Cancelar</button>
         <button type="button" class="btn-action btn-action-primary" id="btn-submit-rename-tab" onclick="submitRenameTab()">
-          Guardar Nombre
+          Guardar
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Modal para Comparar Manualmente un Movimiento Bancario con Facturas Recibidas -->
+  <!-- Modal para Vincular Pago Bancario -->
   <div id="compare-manual-modal" class="modal-backdrop hidden">
     <div class="modal-card" style="max-width: 760px; width: 95%;">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <h3 style="margin: 0;">Comparar Pago Bancario vs Facturas Recibidas</h3>
-          <span class="badge-unpaid" id="compare-modal-badge" style="font-size: 11px;">Sin Factura Asociada</span>
+          <h3 style="margin: 0;">Vincular Pago Bancario</h3>
+          <span class="badge-unpaid" id="compare-modal-badge" style="font-size: 11px;">Sin Factura</span>
         </div>
         <button type="button" class="btn-close-modal" onclick="closeCompareModal()">&times;</button>
       </div>
@@ -434,11 +428,11 @@
                 Concepto bancario
               </div>
               <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">
-                Fecha: <strong id="compare-modal-fecha">-</strong> | Cuenta: <strong id="compare-modal-cuenta">-</strong> | RFC Detectado: <code id="compare-modal-rfc">-</code>
+                Fecha: <strong id="compare-modal-fecha">-</strong> | Cuenta: <strong id="compare-modal-cuenta">-</strong> | RFC: <code id="compare-modal-rfc">-</code>
               </div>
             </div>
             <div style="text-align: right;">
-              <span style="font-size: 11px; color: var(--text-muted); display: block;">Monto del Retiro</span>
+              <span style="font-size: 11px; color: var(--text-muted); display: block;">Monto</span>
               <span style="font-size: 18px; font-weight: 800; color: var(--text-main);" id="compare-modal-monto">$0.00</span>
             </div>
           </div>
@@ -448,30 +442,30 @@
         <div style="margin-top: 16px;">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
             <label style="font-size: 12px; font-weight: 700; color: var(--text-main);">
-              Seleccionar Factura Recibida para Vincular:
+              Facturas disponibles:
             </label>
             <div style="display: flex; gap: 6px;">
               <button type="button" class="btn-action-small active" id="btn-compare-similar" onclick="filterCompareCandidates(true)">
-                Monto Similar (±10%)
+                Monto Similar
               </button>
               <button type="button" class="btn-action-small" id="btn-compare-all" onclick="filterCompareCandidates(false)">
-                Ver Todas las Pendientes
+                Todas las Pendientes
               </button>
             </div>
           </div>
 
-          <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar por proveedor, RFC o folio..." style="width: 100%; margin-bottom: 8px;" oninput="renderCompareInvoiceList()">
+          <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar proveedor, RFC o folio..." style="width: 100%; margin-bottom: 8px;" oninput="renderCompareInvoiceList()">
 
           <div class="compare-table-container">
             <table class="table-excel">
               <thead>
                 <tr>
-                  <th>Proveedor / Emisor</th>
-                  <th style="width: 115px;">RFC Emisor</th>
+                  <th>Proveedor</th>
+                  <th style="width: 115px;">RFC</th>
                   <th style="width: 90px;">Fecha</th>
                   <th style="width: 95px; text-align: right;">Total SAT</th>
                   <th style="width: 95px; text-align: right;">Diferencia</th>
-                  <th style="width: 110px; text-align: center;">Accion</th>
+                  <th style="width: 90px; text-align: center;">Acción</th>
                 </tr>
               </thead>
               <tbody id="compare-invoice-rows">
@@ -484,22 +478,22 @@
         <!-- Aclaracion o Gasto no Facturable -->
         <div class="compare-clarification-box" style="margin-top: 16px;">
           <div style="font-weight: 600; font-size: 12px; color: var(--text-main); margin-bottom: 6px;">
-            O Marcar como Aclaracion / Gasto sin Factura (Comision, Impuesto, Retiro):
+            O clasificar sin factura:
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <select id="compare-category-select" class="form-input" style="width: 190px; height: 34px; font-size: 12px;">
-              <option value="">Seleccionar Categoria...</option>
-              <option value="Comision Bancaria">Comision Bancaria</option>
+            <select id="compare-category-select" class="form-input" style="width: 180px; height: 34px; font-size: 12px;">
+              <option value="">Categoría...</option>
+              <option value="Comision Bancaria">Comisión Bancaria</option>
               <option value="Impuestos SAT / IMSS">Impuestos SAT / IMSS</option>
-              <option value="Nomina / Sueldos">Nomina / Sueldos</option>
+              <option value="Nomina / Sueldos">Nómina / Sueldos</option>
               <option value="Retiro en Efectivo">Retiro en Efectivo</option>
-              <option value="Transferencia entre Cuentas">Transferencia entre Cuentas</option>
-              <option value="Sin Factura Requerida">Sin Factura Requerida</option>
-              <option value="Aclaracion Pendiente">Aclaracion Pendiente</option>
+              <option value="Transferencia entre Cuentas">Transferencia</option>
+              <option value="Sin Factura Requerida">Sin Factura</option>
+              <option value="Aclaracion Pendiente">Aclaración</option>
             </select>
-            <input type="text" id="compare-note-input" class="form-input" style="flex: 1; height: 34px; font-size: 12px; min-width: 180px;" placeholder="Nota o aclaracion (ej: Manejo de cuenta sin factura)...">
+            <input type="text" id="compare-note-input" class="form-input" style="flex: 1; height: 34px; font-size: 12px; min-width: 180px;" placeholder="Nota o motivo...">
             <button type="button" class="btn-action" onclick="saveBankClarification()" style="font-size: 12px;">
-              Guardar Nota
+              Guardar
             </button>
           </div>
         </div>

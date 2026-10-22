@@ -258,12 +258,12 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateCfdiLockState(hasFile, totalInvoices) {
     if (hasFile) {
       btnSelectCfdi.disabled = true;
-      btnSelectCfdi.textContent = `Facturas cargadas (${totalInvoices} comprobantes)`;
+      btnSelectCfdi.textContent = `Facturas cargadas (${totalInvoices})`;
       btnReplaceCfdi.style.display = 'inline-block';
-      cfdiStatus.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">Solo se permite 1 archivo de facturas para "${currentEntidad}". Bloqueado.</span>`;
+      cfdiStatus.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">1 archivo cargado.</span>`;
     } else {
       btnSelectCfdi.disabled = false;
-      btnSelectCfdi.textContent = `Subir Facturas del SAT (${currentEntidad})`;
+      btnSelectCfdi.textContent = `Subir Facturas (${currentEntidad})`;
       btnReplaceCfdi.style.display = 'none';
       cfdiStatus.innerHTML = '';
     }
@@ -271,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 5. Reemplazar archivo de facturas existente
   btnReplaceCfdi.addEventListener('click', async () => {
-    if (!confirm(`Desea eliminar las facturas cargadas de "${currentEntidad}" para el mes ${currentPeriodo} y subir un nuevo archivo?`)) {
+    if (!confirm(`¿Deseas eliminar las facturas de "${currentEntidad}" para subir un nuevo archivo?`)) {
       return;
     }
 
@@ -284,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await loadTabs();
       loadData();
     } catch (err) {
-      alert('Error al intentar eliminar facturas.');
+      alert('Error al eliminar facturas.');
     }
   });
 
@@ -296,7 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!statements || statements.length === 0) {
       bankFilesList.innerHTML = `
         <div class="empty-statements">
-          No se han subido estados de cuenta para este mes (${currentPeriodo}). Puede seleccionar uno o varios archivos PDF con el boton superior.
+          Sin estados de cuenta en este mes.
         </div>
       `;
       return;
@@ -326,14 +326,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="bank-file-name">${st.nombreArchivo}</div>
                 <div class="bank-file-meta">
                   ${st.cuenta ? `Cuenta: <strong>${st.cuenta}</strong> | ` : ''}
-                  Movimientos procesados: <strong>${st.totalMovimientos}</strong> 
+                  Movimientos: <strong>${st.totalMovimientos}</strong> 
                   (${st.cargosCount} cargos / ${st.abonosCount} abonos) | 
-                  Subido: ${uploadDate}
+                  ${uploadDate}
                 </div>
               </div>
             </div>
-            <button type="button" class="btn-delete-statement" onclick="deleteBankStatement('${st._id}', '${st.nombreArchivo}')" title="Eliminar este archivo y recalcular conciliacion">
-              Eliminar Archivo
+            <button type="button" class="btn-delete-statement" onclick="deleteBankStatement('${st._id}', '${st.nombreArchivo}')" title="Eliminar archivo">
+              Eliminar
             </button>
           </div>
         `;
@@ -343,16 +343,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 6. Eliminar un archivo de estado de cuenta bancario
   window.deleteBankStatement = async (id, filename) => {
-    if (
-      !confirm(
-        `Desea eliminar el estado de cuenta "${filename}" del mes ${currentPeriodo}?\nSus movimientos bancarios asociados seran removidos y la conciliacion se recalculara de inmediato.`
-      )
-    ) {
+    if (!confirm(`¿Deseas eliminar el estado de cuenta "${filename}"?`)) {
       return;
     }
 
     try {
-      bankStatus.innerHTML = `<span style="color:var(--info);">Eliminando archivo y recalculando conciliacion...</span>`;
+      bankStatus.innerHTML = `<span style="color:var(--info);">Eliminando archivo...</span>`;
       const res = await fetch(`/api/reconciliation/bank-statement/${id}`, {
         method: 'DELETE'
       });
@@ -364,7 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
         bankStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al eliminar.'}</span>`;
       }
     } catch (err) {
-      bankStatus.innerHTML = `<span style="color:var(--error);">Error de conexion con el servidor.</span>`;
+      bankStatus.innerHTML = `<span style="color:var(--error);">Error de conexión.</span>`;
     }
   };
 
@@ -372,20 +368,20 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateSummary(summary) {
     if (!summary) return;
     statTotalAmount.textContent = formatMoney(summary.montoTotal);
-    statTotalCount.textContent = `${summary.totalFacturas} facturas registradas`;
+    statTotalCount.textContent = `${summary.totalFacturas} facturas`;
 
     statPaidAmount.textContent = formatMoney(summary.montoPagado);
-    statPaidCount.textContent = `${summary.pagadasCount} pagadas en banco`;
+    statPaidCount.textContent = `${summary.pagadasCount} pagadas`;
 
     statUnpaidAmount.textContent = formatMoney(summary.montoNoPagado);
-    statUnpaidCount.textContent = `${summary.noPagadasCount} pendientes de pago`;
+    statUnpaidCount.textContent = `${summary.noPagadasCount} pendientes`;
 
     statCanceledAmount.textContent = formatMoney(summary.montoCancelado);
-    statCanceledCount.textContent = `${summary.canceladasCount} canceladas en SAT`;
+    statCanceledCount.textContent = `${summary.canceladasCount} canceladas`;
 
     if (statUnmatchedAmount && statUnmatchedCount) {
       statUnmatchedAmount.textContent = formatMoney(summary.unmatchedBankMonto);
-      statUnmatchedCount.textContent = `${summary.unmatchedBankCount || 0} sin comprobante SAT`;
+      statUnmatchedCount.textContent = `${summary.unmatchedBankCount || 0} sin factura`;
     }
   }
 
@@ -447,13 +443,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const FIELD_LABELS = {
-    emisor: 'Emisor / Proveedor',
-    rfcEmisor: 'RFC Emisor',
-    uuid: 'Folio Fiscal (UUID)',
-    estadoPago: 'Estado de Pago',
-    banco: 'Banco / Evidencia',
-    observaciones: 'Observaciones',
-    all: 'Todos los campos'
+    emisor: 'Proveedor',
+    rfcEmisor: 'RFC',
+    uuid: 'UUID',
+    estadoPago: 'Estado',
+    banco: 'Banco',
+    observaciones: 'Notas',
+    all: 'Todos'
   };
 
   // 9. Extraer Valores Analizados en Automatico para el Campo Seleccionado
@@ -525,21 +521,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const fieldName = FIELD_LABELS[selectedField] || 'Campo';
 
     if (labelAnalyzedSelect) {
-      labelAnalyzedSelect.textContent = `${fieldName}s Analizados en este Mes (${list.length}):`;
+      labelAnalyzedSelect.textContent = `${fieldName}s (${list.length}):`;
     }
     if (labelSearchInput) {
-      labelSearchInput.textContent = `Buscar en ${fieldName}:`;
+      labelSearchInput.textContent = `Buscar:`;
     }
 
     if (searchInput) {
       if (selectedField === 'emisor') {
-        searchInput.placeholder = 'Escribir o buscar (ej. walmart)...';
+        searchInput.placeholder = 'Buscar proveedor...';
       } else if (selectedField === 'rfcEmisor') {
-        searchInput.placeholder = 'Escribir RFC (ej. NWM9709244W4)...';
+        searchInput.placeholder = 'Buscar RFC...';
       } else if (selectedField === 'uuid') {
-        searchInput.placeholder = 'Escribir folio fiscal UUID...';
+        searchInput.placeholder = 'Buscar UUID...';
       } else {
-        searchInput.placeholder = `Buscar en ${fieldName.toLowerCase()}...`;
+        searchInput.placeholder = `Buscar ${fieldName.toLowerCase()}...`;
       }
     }
 
@@ -547,13 +543,13 @@ document.addEventListener('DOMContentLoaded', () => {
       filterAnalyzedSelect.innerHTML = '';
       const defOpt = document.createElement('option');
       defOpt.value = '';
-      defOpt.textContent = `-- Seleccionar ${fieldName.toLowerCase()} analizado (${list.length}) --`;
+      defOpt.textContent = `-- Todos (${list.length}) --`;
       filterAnalyzedSelect.appendChild(defOpt);
 
       for (const item of list) {
         const opt = document.createElement('option');
         opt.value = item.name;
-        opt.textContent = `${item.name} (${item.count} facturas · ${formatMoney(item.total)})`;
+        opt.textContent = `${item.name} (${item.count} · ${formatMoney(item.total)})`;
         filterAnalyzedSelect.appendChild(opt);
       }
     }
@@ -563,7 +559,7 @@ document.addEventListener('DOMContentLoaded', () => {
       for (const item of list) {
         const dataOpt = document.createElement('option');
         dataOpt.value = item.name;
-        dataOpt.label = `${item.count} facturas · ${formatMoney(item.total)}`;
+        dataOpt.label = `${item.count} · ${formatMoney(item.total)}`;
         analyzedDatalist.appendChild(dataOpt);
       }
     }
@@ -749,7 +745,7 @@ document.addEventListener('DOMContentLoaded', () => {
           else if (f.estadoPago === 'No Pagada') filterUnpaid++;
         }
         if (indicatorStats) {
-          indicatorStats.textContent = `(${filtered.length} analizadas · ${filterPaid} pagadas, ${filterUnpaid} pendientes · Total: ${formatMoney(filterTotal)})`;
+          indicatorStats.textContent = `(${filtered.length} facturas · Total: ${formatMoney(filterTotal)})`;
         }
       }
     } else {
@@ -758,7 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (showingCount) {
-      showingCount.textContent = `Mostrando ${filtered.length} de ${cachedInvoices.length} facturas`;
+      showingCount.textContent = `${filtered.length} de ${cachedInvoices.length} facturas`;
     }
 
     // Renderizar segun vista activa
