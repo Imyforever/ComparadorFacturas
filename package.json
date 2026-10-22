@@ -1,7 +1,7 @@
 {
-  "name": "login-mockup-app",
+  "name": "comparador-facturas",
   "version": "1.0.0",
-  "description": "Maqueta moderna de inicio de sesión con backend en Node.js y Express",
+  "description": "Sistema de conciliacion y auditoria de facturas del SAT contra estados de cuenta bancarios (BBVA, Scotiabank)",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -9,11 +9,13 @@
     "dev": "node --watch server.js"
   },
   "keywords": [
-    "login",
-    "express",
-    "auth",
-    "mockup",
-    "glassmorphism"
+    "conciliacion",
+    "facturas",
+    "sat",
+    "cfdi",
+    "bbva",
+    "scotiabank",
+    "auditoria"
   ],
   "author": "",
   "license": "MIT",
