@@ -180,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.success && Array.isArray(data.tabs)) {
         cachedTabs = data.tabs;
         if (!cachedTabs.some((t) => t.nombre === currentEntidad)) {
-          currentEntidad = cachedTabs[0]?.nombre || 'Personal';
+          currentEntidad = cachedTabs[0]?.nombre || '';
         }
         renderTabs();
       }
@@ -261,13 +261,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // 4. Bloqueo de subida si ya existe archivo de facturas del mes y pestania
   function updateCfdiLockState(hasFile, totalInvoices) {
     if (hasFile) {
-      btnSelectCfdi.disabled = true;
-      btnSelectCfdi.textContent = `Facturas cargadas (${totalInvoices})`;
+      btnSelectCfdi.style.display = 'none';
       btnReplaceCfdi.style.display = 'inline-block';
-      cfdiStatus.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">1 archivo cargado.</span>`;
+      cfdiStatus.innerHTML = `<span style="color:var(--text-muted); font-size:11px;">1 archivo cargado (${totalInvoices} facturas).</span>`;
     } else {
+      btnSelectCfdi.style.display = 'inline-block';
       btnSelectCfdi.disabled = false;
-      btnSelectCfdi.textContent = `Subir Facturas (${currentEntidad})`;
+      btnSelectCfdi.textContent = `+ Subir Facturas (${currentEntidad})`;
       btnReplaceCfdi.style.display = 'none';
       cfdiStatus.innerHTML = '';
     }
@@ -1645,9 +1645,14 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   window.deleteEntityTab = async (tabName) => {
+    if (cachedTabs.length <= 1) {
+      alert('No se puede eliminar la única pestaña activa del mes. Debe haber al menos una pestaña.');
+      return;
+    }
+
     if (
       !confirm(
-        `Desea eliminar la pestania "${tabName}" del mes ${currentPeriodo}?\nTodas las facturas y estados de cuenta asociados a esta pestania seran eliminados.`
+        `¿Deseas eliminar la pestaña "${tabName}" del mes ${currentPeriodo}?\nTodas las facturas y estados de cuenta asociados a esta pestaña serán eliminados.`
       )
     ) {
       return;
@@ -1661,15 +1666,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.success) {
         if (currentEntidad === tabName) {
-          currentEntidad = 'Personal';
+          const remaining = cachedTabs.find((t) => t.nombre !== tabName);
+          currentEntidad = remaining ? remaining.nombre : '';
         }
         await loadTabs();
         loadData();
       } else {
-        alert(data.message || 'Error al eliminar pestania.');
+        alert(data.message || 'Error al eliminar pestaña.');
       }
     } catch (err) {
-      alert('Error de conexion al eliminar pestania.');
+      alert('Error de conexión al eliminar pestaña.');
     }
   };
 

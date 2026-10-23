@@ -21,12 +21,11 @@ const upload = multer({
  * Helper para asegurar que existan las pestanias por defecto y migrar registros anteriores
  */
 const ensureDefaultTabs = async (periodo) => {
-  // Garantizar que la pestania 'Personal' exista en AccountTab para este mes
-  await AccountTab.findOneAndUpdate(
-    { periodo, nombre: 'Personal' },
-    { $setOnInsert: { periodo, nombre: 'Personal' } },
-    { upsert: true }
-  );
+  // Solo si no existe ninguna pestaña activa para este mes, crear una inicial por defecto
+  const totalTabs = await AccountTab.countDocuments({ periodo });
+  if (totalTabs === 0) {
+    await AccountTab.create({ periodo, nombre: 'Personal' });
+  }
 
   // Registrar cualquier entidad existente en facturas que aun no este en AccountTab
   const distinctEntities = await Invoice.distinct('entidad', { periodo });
@@ -270,10 +269,15 @@ router.delete('/tabs', async (req, res) => {
 router.get('/data', async (req, res) => {
   try {
     const periodo = req.query.periodo || '2026-09';
-    const entidad = req.query.entidad || 'Personal';
     const filter = req.query.filter || 'all';
 
     await ensureDefaultTabs(periodo);
+
+    let entidad = req.query.entidad;
+    if (!entidad) {
+      const firstTab = await AccountTab.findOne({ periodo }).sort({ createdAt: 1 }).lean();
+      entidad = firstTab ? firstTab.nombre : 'Personal';
+    }
 
     // Consultas concurrentes en paralelo para máxima velocidad
     const [allInvoices, unmatchedBankMovements, bankMovementsCount, bankStatements] = await Promise.all([
