@@ -1332,6 +1332,40 @@ body.login-page {
   transform: translateY(-1px);
 }
 
+.compare-candidate-card.selected {
+  border: 2px solid var(--primary);
+  background: #ecfdf5;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+}
+
+.compare-radio-circle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  background: #ffffff;
+}
+
+.compare-candidate-card.selected .compare-radio-circle {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.compare-comment-box {
+  transition: all 0.2s ease;
+}
+
+.compare-comment-box.active {
+  border-color: var(--primary) !important;
+  box-shadow: 0 1px 5px rgba(16, 185, 129, 0.18);
+}
+
 .compare-candidate-left {
   flex: 1;
   min-width: 0;

@@ -80,11 +80,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const compareModalMonto = document.getElementById('compare-modal-monto');
   const compareSearchInput = document.getElementById('compare-search-input');
   const compareInvoiceRows = document.getElementById('compare-invoice-rows');
-  const compareCategorySelect = document.getElementById('compare-category-select');
-  const compareNoteInput = document.getElementById('compare-note-input');
+  const compareCommentInput = document.getElementById('compare-comment-input');
+  const compareSelectedBadge = document.getElementById('compare-selected-badge');
+  const compareSelectedPreview = document.getElementById('compare-selected-preview');
+  const compareCommentBox = document.getElementById('compare-comment-box');
+  const btnSaveCompareLink = document.getElementById('btn-save-compare-link');
   const compareStatus = document.getElementById('compare-status');
   const btnCompareSimilar = document.getElementById('btn-compare-similar');
   const btnCompareAll = document.getElementById('btn-compare-all');
+  let selectedCompareInvoiceUuid = null;
 
   const cfdiFileInput = document.getElementById('cfdi-file');
   const btnSelectCfdi = document.getElementById('btn-select-cfdi');
@@ -1758,8 +1762,8 @@ document.addEventListener('DOMContentLoaded', () => {
               <span class="badge-unpaid" style="font-size:11px;">Sin Factura SAT</span>
             </td>
             <td style="text-align:center;">
-              <button type="button" class="btn-action-small btn-action-primary" onclick="openCompareModal('${m._id}')" title="Comparar y vincular con una factura recibida">
-                Comparar / Vincular
+              <button type="button" class="btn-action-small btn-action-primary" onclick="openCompareModal('${m._id}')" title="Vincular con una factura recibida">
+                Vincular
               </button>
             </td>
           </tr>
@@ -1768,13 +1772,14 @@ document.addEventListener('DOMContentLoaded', () => {
       .join('');
   }
 
-  // ================= MODAL DE COMPARACION MANUAL =================
+  // ================= MODAL DE COMPARACION / VINCULACION MANUAL =================
   window.openCompareModal = (movimientoId) => {
     const m = cachedUnmatchedMovements.find((x) => String(x._id) === String(movimientoId));
     if (!m) return;
 
     activeCompareMovement = m;
     compareSimilarOnly = true;
+    selectedCompareInvoiceUuid = null;
 
     if (btnCompareSimilar) btnCompareSimilar.classList.add('active');
     if (btnCompareAll) btnCompareAll.classList.remove('active');
@@ -1794,10 +1799,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (compareModalRfc) compareModalRfc.textContent = m.rfcDetectado || 'No detectado en banco';
     if (compareModalMonto) compareModalMonto.textContent = formatMoney(m.monto);
 
-    if (compareCategorySelect) compareCategorySelect.value = m.categoria || '';
-    if (compareNoteInput) compareNoteInput.value = m.observaciones || '';
     if (compareSearchInput) compareSearchInput.value = '';
+    if (compareCommentInput) compareCommentInput.value = '';
     if (compareStatus) compareStatus.innerHTML = '';
+
+    if (compareSelectedBadge) {
+      compareSelectedBadge.innerHTML = '<span style="color:var(--text-muted); font-style:italic;">Ninguna factura seleccionada</span>';
+    }
+    if (compareSelectedPreview) {
+      compareSelectedPreview.innerHTML = '💡 Haz clic en una factura de arriba para seleccionarla y guardarla.';
+    }
+    if (compareCommentBox) {
+      compareCommentBox.classList.remove('active');
+    }
+    if (btnSaveCompareLink) {
+      btnSaveCompareLink.disabled = true;
+      btnSaveCompareLink.textContent = '✓ Guardar y Marcar como Pagada';
+    }
 
     renderCompareInvoiceList();
     if (compareManualModal) compareManualModal.classList.remove('hidden');
@@ -1805,6 +1823,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.closeCompareModal = () => {
     activeCompareMovement = null;
+    selectedCompareInvoiceUuid = null;
     if (compareStatus) compareStatus.innerHTML = '';
     if (compareManualModal) compareManualModal.classList.add('hidden');
   };
@@ -1819,6 +1838,60 @@ document.addEventListener('DOMContentLoaded', () => {
       if (btnCompareSimilar) btnCompareSimilar.classList.remove('active');
     }
     renderCompareInvoiceList();
+  };
+
+  window.selectCompareInvoice = (uuid) => {
+    selectedCompareInvoiceUuid = uuid;
+    const inv = cachedInvoices.find((i) => i.uuid === uuid);
+    if (!inv) return;
+
+    // Actualizar clases y marcas en las tarjetas
+    document.querySelectorAll('.compare-candidate-card').forEach((el) => {
+      const isThis = el.dataset.uuid === uuid;
+      if (isThis) {
+        el.classList.add('selected');
+        const circle = el.querySelector('.compare-radio-circle');
+        if (circle) circle.innerHTML = '<span style="font-size:11px; font-weight:700;">✓</span>';
+        const btn = el.querySelector('.compare-candidate-btn');
+        if (btn) btn.textContent = '✓ Seleccionada';
+      } else {
+        el.classList.remove('selected');
+        const circle = el.querySelector('.compare-radio-circle');
+        if (circle) circle.innerHTML = '';
+        const btn = el.querySelector('.compare-candidate-btn');
+        if (btn) btn.textContent = 'Seleccionar';
+      }
+    });
+
+    if (compareSelectedBadge) {
+      compareSelectedBadge.innerHTML = '<span class="badge-paid" style="font-size:10.5px; padding:2px 7px;">Factura Seleccionada</span>';
+    }
+
+    if (compareSelectedPreview) {
+      compareSelectedPreview.innerHTML = `
+        <div style="color:var(--text-main); font-weight:600; margin-top:2px;">
+          <strong style="color:var(--primary); font-size:13px;">${inv.emisor || 'Sin emisor'}</strong>
+          <span style="margin: 0 6px; color:var(--text-muted);">|</span>
+          Total: <strong style="color:var(--primary);">${formatMoney(inv.total)}</strong>
+          <span style="margin: 0 6px; color:var(--text-muted);">|</span>
+          <span style="color:var(--text-muted); font-size:11px; font-family:monospace;" title="${inv.uuid}">Folio: ${inv.uuid.substring(0, 16)}...</span>
+        </div>
+      `;
+    }
+
+    if (compareCommentBox) {
+      compareCommentBox.classList.add('active');
+    }
+
+    if (btnSaveCompareLink) {
+      btnSaveCompareLink.disabled = false;
+      const firstName = (inv.emisor || 'Factura').split(' ')[0];
+      btnSaveCompareLink.textContent = `✓ Vincular a ${firstName} y Guardar como Pagada`;
+    }
+
+    if (compareCommentInput) {
+      compareCommentInput.focus();
+    }
   };
 
   window.renderCompareInvoiceList = () => {
@@ -1878,6 +1951,7 @@ document.addEventListener('DOMContentLoaded', () => {
     compareInvoiceRows.innerHTML = candidates
       .map((inv) => {
         const isCurrentlyPaid = inv.estadoPago === 'Pagada';
+        const isSelected = selectedCompareInvoiceUuid === inv.uuid;
         const diff = Math.round(Math.abs((inv.total || 0) - bankMonto) * 100) / 100;
 
         let diffBadgeHtml = '';
@@ -1891,7 +1965,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const dateStr = inv.fechaEmision ? String(inv.fechaEmision).split('T')[0] : '-';
 
         return `
-          <div class="compare-candidate-card" onclick="linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')" title="Clic para vincular a esta factura y marcarla automáticamente como Pagada">
+          <div class="compare-candidate-card ${isSelected ? 'selected' : ''}" data-uuid="${inv.uuid}" onclick="selectCompareInvoice('${inv.uuid}')" title="Clic para seleccionar esta factura">
+            <div class="compare-radio-circle">
+              ${isSelected ? '<span style="font-size:11px; font-weight:700;">✓</span>' : ''}
+            </div>
             <div class="compare-candidate-left">
               <div class="compare-candidate-vendor">${inv.emisor || 'Sin emisor'}</div>
               <div class="compare-candidate-meta">
@@ -1906,8 +1983,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="compare-candidate-total">${formatMoney(inv.total)}</div>
                 ${diffBadgeHtml}
               </div>
-              <button type="button" class="compare-candidate-btn" onclick="event.stopPropagation(); linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')">
-                ✓ ${isCurrentlyPaid ? 'Reasignar y Pagar' : 'Vincular y Pagar'}
+              <button type="button" class="compare-candidate-btn" onclick="event.stopPropagation(); selectCompareInvoice('${inv.uuid}')">
+                ${isSelected ? '✓ Seleccionada' : 'Seleccionar'}
               </button>
             </div>
           </div>
@@ -1916,7 +1993,17 @@ document.addEventListener('DOMContentLoaded', () => {
       .join('');
   };
 
-  window.linkMovementToInvoice = async (movimientoId, invoiceUuid) => {
+  window.submitSelectedInvoiceLink = () => {
+    if (!activeCompareMovement) return;
+    if (!selectedCompareInvoiceUuid) {
+      alert('Por favor selecciona una factura de la lista.');
+      return;
+    }
+    const comentario = compareCommentInput?.value.trim() || '';
+    linkMovementToInvoice(activeCompareMovement._id, selectedCompareInvoiceUuid, comentario);
+  };
+
+  window.linkMovementToInvoice = async (movimientoId, invoiceUuid, customObservaciones = '') => {
     if (!activeCompareMovement) return;
 
     const targetInv = cachedInvoices.find((i) => i.uuid === invoiceUuid);
@@ -1929,8 +2016,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (compareStatus) {
-      compareStatus.innerHTML = '<span style="color:var(--info); font-weight:600;">⚡ Vinculando pago y marcando factura como Pagada (Manual)...</span>';
+      compareStatus.innerHTML = '<span style="color:var(--info); font-weight:600;">⚡ Vinculando pago y guardando como Pagada (Manual)...</span>';
     }
+    if (btnSaveCompareLink) btnSaveCompareLink.disabled = true;
+
+    const obsToSend = customObservaciones || `Vinculado manualmente a retiro bancario (${activeCompareMovement.banco || 'Banco'} - ${formatMoney(activeCompareMovement.monto)})`;
 
     try {
       const res = await fetch('/api/reconciliation/link-manual', {
@@ -1939,7 +2029,7 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           movimientoId,
           invoiceUuid,
-          observaciones: 'Conciliado manualmente desde apartado de pagos bancarios'
+          observaciones: obsToSend
         })
       });
 
@@ -1952,11 +2042,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (compareStatus) {
           compareStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al vincular.'}</span>`;
         }
+        if (btnSaveCompareLink) btnSaveCompareLink.disabled = false;
       }
     } catch (err) {
       if (compareStatus) {
         compareStatus.innerHTML = `<span style="color:var(--error);">Error de conexión con el servidor.</span>`;
       }
+      if (btnSaveCompareLink) btnSaveCompareLink.disabled = false;
     }
   };
 
@@ -2007,6 +2099,9 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (renameTabModal && !renameTabModal.classList.contains('hidden')) {
         e.preventDefault();
         submitRenameTab();
+      } else if (compareManualModal && !compareManualModal.classList.contains('hidden') && selectedCompareInvoiceUuid) {
+        e.preventDefault();
+        submitSelectedInvoiceLink();
       }
     }
   });

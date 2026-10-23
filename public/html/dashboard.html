@@ -534,19 +534,38 @@
           <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar proveedor, RFC o folio..." style="width: 100%; margin-bottom: 8px;" oninput="renderCompareInvoiceList()">
 
           <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px;">
-            Haz clic en cualquier factura para vincularla a este pago bancario y marcarla automáticamente como <strong>Pagada (Manual)</strong>:
+            Selecciona una factura de la lista y escribe un comentario para vincularla y marcarla automáticamente como <strong>Pagada (Manual)</strong>:
           </div>
 
           <div class="compare-list-container" id="compare-invoice-rows">
-            <!-- Se llena dinamicamente con tarjetas clickeables para vincular y pagar -->
+            <!-- Se llena dinamicamente con tarjetas seleccionables -->
+          </div>
+
+          <!-- Caja de Comentario y Factura Seleccionada -->
+          <div class="compare-comment-box" id="compare-comment-box" style="margin-top: 12px; background: #ffffff; border: 1px solid var(--border); border-radius: 4px; padding: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+              <label for="compare-comment-input" style="font-size: 12px; font-weight: 700; color: var(--text-main); margin: 0;">
+                Comentario u Observación para la Factura:
+              </label>
+              <span id="compare-selected-badge" style="font-size: 11px; color: var(--text-muted); font-style: italic;">
+                Ninguna factura seleccionada
+              </span>
+            </div>
+            <input type="text" id="compare-comment-input" class="form-input" placeholder="Escribe un comentario opcional (ej: Pago autorizado, liquidación quincenal, transferencia directa...)" style="width: 100%; height: 34px; font-size: 12px;" />
+            <div id="compare-selected-preview" style="font-size: 11.5px; color: var(--text-muted); margin-top: 6px;">
+              💡 Haz clic en una factura de arriba para seleccionarla y guardarla.
+            </div>
           </div>
         </div>
 
         <span id="compare-status" class="status-msg"></span>
       </div>
 
-      <div class="modal-footer">
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
         <button type="button" class="btn-action" onclick="closeCompareModal()">Cerrar</button>
+        <button type="button" class="btn-action btn-action-primary" id="btn-save-compare-link" onclick="submitSelectedInvoiceLink()" disabled style="font-size: 12px; font-weight: 700; padding: 7px 18px;">
+          ✓ Guardar y Marcar como Pagada
+        </button>
       </div>
     </div>
   </div>
