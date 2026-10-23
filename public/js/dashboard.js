@@ -62,10 +62,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const statUnmatchedAmount = document.getElementById('stat-unmatched-amount');
   const statUnmatchedCount = document.getElementById('stat-unmatched-count');
 
+  // Elementos de Filtro por Rango de Precios en Facturas
+  const filterMinPrice = document.getElementById('filter-min-price');
+  const filterMaxPrice = document.getElementById('filter-max-price');
+  const btnClearPriceFilter = document.getElementById('btn-clear-price-filter');
+
   // Elementos del Apartado de Pagos Bancarios no Encontrados en Facturas Recibidas
   const unmatchedCountHeader = document.getElementById('unmatched-count-header');
   const unmatchedTotalBadge = document.getElementById('unmatched-total-badge');
   const unmatchedSearchInput = document.getElementById('unmatched-search-input');
+  const unmatchedMinPrice = document.getElementById('unmatched-min-price');
+  const unmatchedMaxPrice = document.getElementById('unmatched-max-price');
+  const btnClearUnmatchedPrice = document.getElementById('btn-clear-unmatched-price');
   const btnToggleUnmatchedTable = document.getElementById('btn-toggle-unmatched-table');
   const unmatchedTableWrapper = document.getElementById('unmatched-table-wrapper');
   const unmatchedBankRows = document.getElementById('unmatched-bank-rows');
@@ -751,7 +759,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 13. Aplicar Filtro y Renderizar
   function applyFilterAndRender() {
-    const query = (searchInput.value || '').trim();
+    const minPriceVal = parseFloat(filterMinPrice?.value);
+    const maxPriceVal = parseFloat(filterMaxPrice?.value);
+    const hasMinPrice = !isNaN(minPriceVal) && minPriceVal >= 0;
+    const hasMaxPrice = !isNaN(maxPriceVal) && maxPriceVal >= 0;
+
+    if (btnClearPriceFilter) {
+      btnClearPriceFilter.style.display = (hasMinPrice || hasMaxPrice) ? 'inline-block' : 'none';
+    }
 
     // Filtrar facturas
     const filtered = cachedInvoices.filter((inv) => {
@@ -759,6 +774,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (currentFilter === 'no_pagadas' && inv.estadoPago !== 'No Pagada') return false;
       if (currentFilter === 'egresos' && inv.efecto !== 'Egreso') return false;
       if (currentFilter === 'canceladas' && inv.estadoPago !== 'Cancelada') return false;
+
+      const invTotal = Number(inv.total || 0);
+      if (hasMinPrice && invTotal < minPriceVal) return false;
+      if (hasMaxPrice && invTotal > maxPriceVal) return false;
 
       if (query) {
         return checkFieldMatch(inv, selectedField, query);
@@ -851,6 +870,25 @@ document.addEventListener('DOMContentLoaded', () => {
       applyFilterAndRender();
     });
   }
+
+  // Eventos de filtro por rango de importes en Facturas
+  if (filterMinPrice) {
+    filterMinPrice.addEventListener('input', () => {
+      applyFilterAndRender();
+    });
+  }
+  if (filterMaxPrice) {
+    filterMaxPrice.addEventListener('input', () => {
+      applyFilterAndRender();
+    });
+  }
+
+  window.clearInvoicePriceFilter = () => {
+    if (filterMinPrice) filterMinPrice.value = '';
+    if (filterMaxPrice) filterMaxPrice.value = '';
+    if (btnClearPriceFilter) btnClearPriceFilter.style.display = 'none';
+    applyFilterAndRender();
+  };
 
   // Alternar Modos de Vista
   if (btnViewDetail) {
@@ -1703,12 +1741,55 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (unmatchedMinPrice) {
+    unmatchedMinPrice.addEventListener('input', () => {
+      renderUnmatchedBankMovements();
+    });
+  }
+
+  if (unmatchedMaxPrice) {
+    unmatchedMaxPrice.addEventListener('input', () => {
+      renderUnmatchedBankMovements();
+    });
+  }
+
+  window.clearUnmatchedPriceFilter = () => {
+    if (unmatchedMinPrice) unmatchedMinPrice.value = '';
+    if (unmatchedMaxPrice) unmatchedMaxPrice.value = '';
+    if (btnClearUnmatchedPrice) btnClearUnmatchedPrice.style.display = 'none';
+    renderUnmatchedBankMovements();
+  };
+
   function renderUnmatchedBankMovements() {
     if (!unmatchedBankRows) return;
 
     const query = (unmatchedSearchInput?.value || '').trim().toLowerCase();
 
+    // 1. Obtener conjunto de movimientos asignados a facturas pagadas (exclusión estricta)
+    const paidMovementIds = new Set(
+      cachedInvoices
+        .filter((inv) => inv.estadoPago === 'Pagada' && inv.pagoAsociado?.movimientoId)
+        .map((inv) => String(inv.pagoAsociado.movimientoId))
+    );
+
+    // 2. Valores de rango de precio
+    const minBankVal = parseFloat(unmatchedMinPrice?.value);
+    const maxBankVal = parseFloat(unmatchedMaxPrice?.value);
+    const hasMinBank = !isNaN(minBankVal) && minBankVal >= 0;
+    const hasMaxBank = !isNaN(maxBankVal) && maxBankVal >= 0;
+
+    if (btnClearUnmatchedPrice) {
+      btnClearUnmatchedPrice.style.display = (hasMinBank || hasMaxBank) ? 'inline-block' : 'none';
+    }
+
     const filtered = cachedUnmatchedMovements.filter((m) => {
+      // Si este movimiento ya fue asignado como pago de una factura pagada, NUNCA mostrarlo
+      if (paidMovementIds.has(String(m._id))) return false;
+
+      const mvMonto = Number(m.monto || 0);
+      if (hasMinBank && mvMonto < minBankVal) return false;
+      if (hasMaxBank && mvMonto > maxBankVal) return false;
+
       if (!query) return true;
       const str = `${m.fecha} ${m.banco} ${m.cuenta || ''} ${m.concepto} ${m.origenReferencia || ''} ${m.rfcDetectado || ''} ${m.monto} ${m.categoria || ''} ${m.observaciones || ''}`.toLowerCase();
       return str.includes(query);
@@ -2135,6 +2216,43 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.target === compareManualModal) closeCompareModal();
     });
   }
+
+  // Boton Recalcular Conciliacion
+  window.triggerRefreshReconciliation = async () => {
+    const btn = document.getElementById('btn-refresh-reconciliation');
+    const icon = document.getElementById('refresh-icon');
+    if (btn) btn.disabled = true;
+    if (icon) icon.classList.add('spin-animation');
+
+    try {
+      const res = await fetch('/api/reconciliation/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodo: currentPeriodo, entidad: currentEntidad })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await loadData();
+        if (btn) {
+          const prev = btn.innerHTML;
+          btn.innerHTML = '✓ ¡Conciliación Sincronizada!';
+          setTimeout(() => {
+            btn.innerHTML = prev;
+            btn.disabled = false;
+          }, 2000);
+        }
+      } else {
+        alert(data.message || 'Error al recalcular la conciliación.');
+        if (btn) btn.disabled = false;
+      }
+    } catch (err) {
+      console.error('Error refrescando:', err);
+      alert('Error de conexión al recalcular la conciliación.');
+      if (btn) btn.disabled = false;
+    } finally {
+      if (icon) icon.classList.remove('spin-animation');
+    }
+  };
 
   // Carga inicial sincronizada
   (async () => {

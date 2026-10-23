@@ -280,17 +280,40 @@ router.get('/data', async (req, res) => {
     }
 
     // Consultas concurrentes en paralelo para máxima velocidad
-    const [allInvoices, unmatchedBankMovements, bankMovementsCount, bankStatements] = await Promise.all([
+    const [allInvoices, rawBankMovements, bankMovementsCount, bankStatements] = await Promise.all([
       Invoice.find({ periodo, entidad }).sort({ fechaEmision: 1 }).lean(),
       BankMovement.find({
         periodo,
         entidad,
-        tipo: 'Retiro',
-        conciliado: false
+        tipo: 'Retiro'
       }).sort({ fechaNormalizada: -1, fecha: -1 }).lean(),
       BankMovement.countDocuments({ periodo, entidad, tipo: 'Retiro' }),
       BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean()
     ]);
+
+    // IDs de movimientos bancarios que están asignados a facturas marcadas como Pagada
+    const paidMovementIdSet = new Set(
+      allInvoices
+        .filter((inv) => inv.estadoPago === 'Pagada' && inv.pagoAsociado?.movimientoId)
+        .map((inv) => String(inv.pagoAsociado.movimientoId))
+    );
+
+    // UUIDs de facturas vigentes pagadas
+    const paidInvoiceUuidSet = new Set(
+      allInvoices
+        .filter((inv) => inv.estadoPago === 'Pagada')
+        .map((inv) => inv.uuid)
+    );
+
+    // Filtrar estrictamente: NINGÚN movimiento que pertenezca a una factura pagada debe aparecer en la tabla de sin factura
+    const unmatchedBankMovements = rawBankMovements.filter((m) => {
+      // 1. Si su ID está asignado como pago de una factura pagada, EXCLUIR
+      if (paidMovementIdSet.has(String(m._id))) return false;
+      // 2. Si tiene facturaUuid y esa factura está pagada, EXCLUIR
+      if (m.facturaUuid && paidInvoiceUuidSet.has(m.facturaUuid)) return false;
+      // 3. Solo incluir movimientos no conciliados o cuyo registro conciliado no tenga factura vigente pagada
+      return !m.conciliado || (!m.facturaUuid && !paidMovementIdSet.has(String(m._id)));
+    });
 
     let pagadasCount = 0;
     let montoPagado = 0;
@@ -371,6 +394,26 @@ router.get('/data', async (req, res) => {
       unmatchedBankMovements
     });
   } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.0 Recalcular y sincronizar conciliación de un periodo y entidad
+router.post('/refresh', async (req, res) => {
+  try {
+    const periodo = req.body.periodo || req.query.periodo || '2026-09';
+    const entidad = req.body.entidad || req.query.entidad || 'Personal';
+
+    await ensureDefaultTabs(periodo);
+    const { summary } = await runReconciliationForPeriod(periodo, entidad);
+
+    return res.json({
+      success: true,
+      message: `Conciliación del periodo ${periodo} (${entidad}) recalculada y sincronizada exitosamente.`,
+      summary
+    });
+  } catch (err) {
+    console.error('Error recalculando conciliación:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -949,30 +992,23 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
     for (const item of uploadedResults) {
       const { file, movements } = item;
 
-      const bulkOps = movements.map((mv) => ({
-        updateOne: {
-          filter: {
-            entidad,
-            banco: mv.banco,
-            fecha: mv.fecha,
-            monto: mv.monto,
-            saldo: mv.saldo,
-            concepto: mv.concepto
-          },
-          update: {
-            $set: {
-              ...mv,
-              entidad,
-              archivoOrigen: file.originalname
-            }
-          },
-          upsert: true
-        }
+      // Eliminar movimientos previos que pertenecían a este mismo archivo para esta entidad
+      // para evitar duplicación al re-subir o actualizar
+      await BankMovement.deleteMany({ archivoOrigen: file.originalname, entidad });
+
+      // Insertar cada movimiento del estado de cuenta fielmente.
+      // Si el PDF contiene 2 o más cargos con el mismo importe y fecha (ej. 2 pagos de Starlink de $1,724.24),
+      // se conservan y guardan AMBOS movimientos con su ID único propio para que concilien sus respectivas facturas.
+      const docsToInsert = movements.map((mv) => ({
+        ...mv,
+        entidad,
+        archivoOrigen: file.originalname,
+        archivoPeriodo: targetPeriodo
       }));
 
-      if (bulkOps.length > 0) {
-        await BankMovement.bulkWrite(bulkOps);
-        totalMovements += bulkOps.length;
+      if (docsToInsert.length > 0) {
+        await BankMovement.insertMany(docsToInsert);
+        totalMovements += docsToInsert.length;
       }
 
       const retiros = movements.filter((m) => m.tipo === 'Retiro');

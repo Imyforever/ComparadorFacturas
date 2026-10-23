@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Conciliacion de Facturas - Comparador</title>
-  <link rel="stylesheet" href="/css/styles.css?v=2">
+  <link rel="stylesheet" href="/css/styles.css?v=3">
 </head>
 
 <body class="dashboard-body">
@@ -23,6 +23,9 @@
         <div class="period-controls">
           <label for="period-select" style="font-size: 12px; font-weight: 600;">Mes:</label>
           <select id="period-select" class="select-period"></select>
+          <button id="btn-refresh-reconciliation" class="btn-action" title="Recalcular y sincronizar conciliación de este mes" onclick="triggerRefreshReconciliation()">
+            <span id="refresh-icon">🔄</span> Recalcular Conciliación
+          </button>
           <button id="btn-export-csv" class="btn-action" title="Exportar CSV">Exportar CSV</button>
           <button id="btn-logout" class="btn-logout">Salir</button>
         </div>
@@ -186,6 +189,16 @@
               <button type="button" id="btn-clear-search" class="btn-clear-search" title="Limpiar" style="display:none;">&times;</button>
             </div>
           </div>
+
+          <div class="field-filter-item field-filter-item-price">
+            <label class="field-filter-label">Rango Importe:</label>
+            <div class="price-range-inputs">
+              <input type="number" id="filter-min-price" class="form-input price-input" placeholder="Mínimo $" step="any" min="0">
+              <span class="price-separator">—</span>
+              <input type="number" id="filter-max-price" class="form-input price-input" placeholder="Máximo $" step="any" min="0">
+              <button type="button" id="btn-clear-price-filter" class="btn-clear-price" title="Limpiar rango de importes" onclick="clearInvoicePriceFilter()" style="display:none;">&times;</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -276,7 +289,14 @@
           </div>
 
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <input type="text" id="unmatched-search-input" class="search-input" style="width: 200px;" placeholder="Buscar movimiento..." autocomplete="off">
+            <div class="price-range-inputs">
+              <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-right: 2px;">Importe:</span>
+              <input type="number" id="unmatched-min-price" class="form-input price-input" placeholder="Min $" step="any" min="0" style="width: 78px;">
+              <span class="price-separator">—</span>
+              <input type="number" id="unmatched-max-price" class="form-input price-input" placeholder="Max $" step="any" min="0" style="width: 78px;">
+              <button type="button" id="btn-clear-unmatched-price" class="btn-clear-price" title="Limpiar rango de importes" onclick="clearUnmatchedPriceFilter()" style="display:none;">&times;</button>
+            </div>
+            <input type="text" id="unmatched-search-input" class="search-input" style="width: 170px;" placeholder="Buscar movimiento..." autocomplete="off">
             <button type="button" class="btn-action" id="btn-toggle-unmatched-table">
               Mostrar / Ocultar
             </button>
@@ -570,6 +590,6 @@
     </div>
   </div>
 
-  <script src="/js/dashboard.js?v=2"></script>
+  <script src="/js/dashboard.js?v=3"></script>
 </body>
 </html>
