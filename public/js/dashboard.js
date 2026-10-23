@@ -596,16 +596,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Sin pago registrado</span>';
         if (inv.estadoPago === 'Pagada') {
-          if (inv.pagoAsociado && (inv.pagoAsociado.banco || inv.pagoAsociado.montoRetiro)) {
-            const p = inv.pagoAsociado;
+          if (inv.egresoAsociado && inv.egresoAsociado.uuid) {
             paymentDetailHtml = `
-              <div class="payment-detail">
-                <strong>Banco:</strong> ${p.banco || '-'} | <strong>Fecha:</strong> ${p.fechaPago || '-'} | <strong>Monto:</strong> ${formatMoney(p.montoRetiro || inv.total)}<br>
-                <strong>Concepto:</strong> ${p.conceptoBanco || p.banco || 'Retiro bancario'}
+              <div class="payment-detail" style="border-left: 3px solid #6366f1; padding-left: 6px;">
+                <span style="font-size:10px; font-weight:700; background:#e0e7ff; color:#3730a3; padding:1px 5px; border-radius:2px;">Nota de Crédito</span>
+                <span style="font-size:11.5px; font-weight:600; color:var(--text-main); margin-left:4px;">${formatMoney(inv.egresoAsociado.total || inv.total)}</span><br>
+                <span style="font-size:10.5px; color:#4338ca; font-family:monospace;" title="${inv.egresoAsociado.uuid}">${inv.egresoAsociado.uuid.substring(0, 16)}...</span>
+              </div>
+            `;
+          } else if (inv.pagoAsociado && (inv.pagoAsociado.banco || inv.pagoAsociado.montoRetiro)) {
+            const p = inv.pagoAsociado;
+            const isEgresoPayment = p.banco && p.banco.includes('Nota de Crédito');
+            if (isEgresoPayment) {
+              paymentDetailHtml = `
+                <div class="payment-detail" style="border-left: 3px solid #6366f1; padding-left: 6px;">
+                  <span style="font-size:10px; font-weight:700; background:#e0e7ff; color:#3730a3; padding:1px 5px; border-radius:2px;">Nota de Crédito</span>
+                  <span style="font-size:11.5px; font-weight:600; color:var(--text-main); margin-left:4px;">${formatMoney(p.montoRetiro || inv.total)}</span><br>
+                  <span style="font-size:10.5px; color:#4338ca; font-family:monospace;" title="${p.referencia || ''}">${(p.referencia || '').substring(0, 16)}...</span>
+                </div>
+              `;
+            } else {
+              paymentDetailHtml = `
+                <div class="payment-detail">
+                  <strong>Banco:</strong> ${p.banco || '-'} | <strong>Fecha:</strong> ${p.fechaPago || '-'} | <strong>Monto:</strong> ${formatMoney(p.montoRetiro || inv.total)}<br>
+                  <strong>Concepto:</strong> ${p.conceptoBanco || p.banco || 'Retiro bancario'}
+                </div>
+              `;
+            }
+          } else {
+            paymentDetailHtml = '<span style="color:var(--success); font-weight:600; font-size:11.5px;">✓ Pagada (Manual)</span>';
+          }
+        } else if (inv.efecto === 'Egreso') {
+          if (inv.ingresoAsociado && inv.ingresoAsociado.uuid) {
+            paymentDetailHtml = `
+              <div class="payment-detail" style="border-left: 3px solid #10b981; padding-left: 6px;">
+                <span class="badge-paid" style="font-size:9.5px; padding:1px 5px;">Aplicada a Factura</span><br>
+                <span style="font-size:10.5px; color:#065f46; font-family:monospace;" title="${inv.ingresoAsociado.uuid}">${inv.ingresoAsociado.uuid.substring(0, 16)}...</span>
               </div>
             `;
           } else {
-            paymentDetailHtml = '<span style="color:var(--success); font-weight:600; font-size:11.5px;">✓ Pagada (Manual)</span>';
+            paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Nota de Crédito disponible</span>';
           }
         } else if (inv.estadoSat === 'Cancelado') {
           paymentDetailHtml = '<span style="color:var(--text-muted); font-size:11px;">Comprobante cancelado en SAT</span>';
@@ -960,12 +990,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const modalBankSearchInput = document.getElementById('modal-bank-search-input');
   const modalBankCandidatesList = document.getElementById('modal-bank-candidates-list');
 
+  // Elementos de la seccion de Notas de Credito (Egresos)
+  const modalEgresoSection = document.getElementById('modal-egreso-section');
+  const modalEgresoMatchBadge = document.getElementById('modal-egreso-match-badge');
+  const modalLinkedEgresoCard = document.getElementById('modal-linked-egreso-card');
+  const modalLinkedEgresoMonto = document.getElementById('modal-linked-egreso-monto');
+  const modalLinkedEgresoFecha = document.getElementById('modal-linked-egreso-fecha');
+  const modalLinkedEgresoUuid = document.getElementById('modal-linked-egreso-uuid');
+  const modalEgresoCandidatesContainer = document.getElementById('modal-egreso-candidates-container');
+  const modalEgresoSearchInput = document.getElementById('modal-egreso-search-input');
+  const modalEgresoCandidatesList = document.getElementById('modal-egreso-candidates-list');
+
   window.openEditModal = (uuid, focusPayment = false) => {
     const inv = cachedInvoices.find((i) => i.uuid === uuid);
     if (!inv) return;
 
     activeEditingUuid = uuid;
-    if (modalEditTitle) modalEditTitle.textContent = focusPayment ? 'Vincular Pago de Factura' : 'Factura y Pago';
+    if (modalEditTitle) modalEditTitle.textContent = focusPayment ? 'Vincular Pago / Nota de Crédito' : 'Factura y Pago';
     if (modalEmisor) modalEmisor.textContent = inv.emisor || 'Sin emisor registrado';
     if (modalUuid) modalUuid.textContent = inv.uuid;
     if (modalTotal) modalTotal.textContent = formatMoney(inv.total);
@@ -975,6 +1016,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (modalObservaciones) modalObservaciones.value = inv.observaciones || '';
     if (modalStatus) modalStatus.innerHTML = '';
     if (modalBankSearchInput) modalBankSearchInput.value = '';
+    if (modalEgresoSearchInput) modalEgresoSearchInput.value = '';
 
     // Badge de estado actual en barra rapida
     if (modalCurrentBadge) {
@@ -997,8 +1039,37 @@ document.addEventListener('DOMContentLoaded', () => {
       btnQuickMarkPaid.style.display = inv.estadoPago === 'Pagada' ? 'none' : 'inline-block';
     }
 
+    // Gestion de seccion de Notas de Credito (Egresos)
+    if (inv.efecto === 'Egreso') {
+      if (modalEgresoSection) modalEgresoSection.style.display = 'none';
+    } else {
+      if (modalEgresoSection) modalEgresoSection.style.display = 'block';
+
+      const hasLinkedEgreso = (inv.egresoAsociado && inv.egresoAsociado.uuid) || (inv.pagoAsociado?.banco && inv.pagoAsociado.banco.includes('Nota de Crédito'));
+      if (hasLinkedEgreso && inv.estadoPago === 'Pagada') {
+        const egUuid = inv.egresoAsociado?.uuid || inv.pagoAsociado?.referencia || '';
+        const egTotal = inv.egresoAsociado?.total || inv.pagoAsociado?.montoRetiro || inv.total;
+        const egFecha = inv.egresoAsociado?.fechaEmision || inv.pagoAsociado?.fechaPago || '-';
+        const egEmisor = inv.egresoAsociado?.emisor || inv.emisor || '';
+
+        if (modalLinkedEgresoCard) modalLinkedEgresoCard.style.display = 'block';
+        if (modalLinkedEgresoMonto) modalLinkedEgresoMonto.textContent = formatMoney(egTotal);
+        if (modalLinkedEgresoFecha) modalLinkedEgresoFecha.textContent = `Fecha: ${String(egFecha).split('T')[0]}`;
+        if (modalLinkedEgresoUuid) modalLinkedEgresoUuid.textContent = `${egUuid} (${egEmisor})`;
+        if (modalEgresoCandidatesContainer) modalEgresoCandidatesContainer.style.display = 'none';
+        if (modalEgresoMatchBadge) {
+          modalEgresoMatchBadge.className = 'badge-paid';
+          modalEgresoMatchBadge.textContent = 'Nota de Crédito Vinculada';
+        }
+      } else {
+        if (modalLinkedEgresoCard) modalLinkedEgresoCard.style.display = 'none';
+        if (modalEgresoCandidatesContainer) modalEgresoCandidatesContainer.style.display = 'block';
+        renderModalEgresoCandidates();
+      }
+    }
+
     // Comprobar si ya tiene un pago bancario vinculado
-    const hasLinkedBank = inv.pagoAsociado && (inv.pagoAsociado.movimientoId || inv.pagoAsociado.banco);
+    const hasLinkedBank = inv.pagoAsociado && (inv.pagoAsociado.movimientoId || (inv.pagoAsociado.banco && !inv.pagoAsociado.banco.includes('Nota de Crédito')));
     if (hasLinkedBank && inv.estadoPago === 'Pagada') {
       if (modalLinkedPaymentCard) modalLinkedPaymentCard.style.display = 'block';
       if (modalLinkedBanco) modalLinkedBanco.textContent = inv.pagoAsociado.banco || 'BANCO';
@@ -1034,6 +1105,199 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.openLinkPaymentModal = (uuid) => {
     window.openEditModal(uuid, true);
+  };
+
+  // Renderizar candidatos de Notas de Credito (Egresos)
+  window.renderModalEgresoCandidates = () => {
+    if (!activeEditingUuid || !modalEgresoCandidatesList) return;
+    const inv = cachedInvoices.find((i) => i.uuid === activeEditingUuid);
+    if (!inv || inv.efecto === 'Egreso') return;
+
+    const query = (modalEgresoSearchInput?.value || '').trim().toLowerCase();
+    const invTotal = Number(inv.total || 0);
+
+    // Filtrar facturas de tipo Egreso (Notas de Credito) de la misma pestania
+    let candidates = (cachedInvoices || []).filter(
+      (i) => i.efecto === 'Egreso' && (!i.ingresoAsociado?.uuid || i.ingresoAsociado.uuid === inv.uuid)
+    );
+
+    if (query) {
+      candidates = candidates.filter((e) => {
+        const text = `${e.uuid || ''} ${e.emisor || ''} ${e.rfcEmisor || ''} ${e.total || ''} ${e.fechaEmision || ''}`.toLowerCase();
+        return text.includes(query);
+      });
+    }
+
+    // Ordenar: primero los de igual RFC emisor, luego por cercania de importe
+    candidates.sort((a, b) => {
+      const rfcMatchA = a.rfcEmisor === inv.rfcEmisor ? 1 : 0;
+      const rfcMatchB = b.rfcEmisor === inv.rfcEmisor ? 1 : 0;
+      if (rfcMatchA !== rfcMatchB) return rfcMatchB - rfcMatchA;
+
+      const diffA = Math.abs(Number(a.total || 0) - invTotal);
+      const diffB = Math.abs(Number(b.total || 0) - invTotal);
+      return diffA - diffB;
+    });
+
+    const exactMatches = candidates.filter(
+      (e) => e.rfcEmisor === inv.rfcEmisor && Math.abs(Number(e.total || 0) - invTotal) < 0.01
+    );
+
+    if (modalEgresoMatchBadge) {
+      if (exactMatches.length > 0) {
+        modalEgresoMatchBadge.className = 'badge-paid';
+        modalEgresoMatchBadge.textContent = `${exactMatches.length} con proveedor e importe exacto (${formatMoney(invTotal)})`;
+      } else if (candidates.length > 0) {
+        modalEgresoMatchBadge.className = 'badge-na';
+        modalEgresoMatchBadge.textContent = `${candidates.length} Notas de Crédito disponibles`;
+      } else {
+        modalEgresoMatchBadge.className = 'badge-na';
+        modalEgresoMatchBadge.textContent = 'Sin notas de crédito disponibles';
+      }
+    }
+
+    if (candidates.length === 0) {
+      modalEgresoCandidatesList.innerHTML = `
+        <div style="padding:12px; text-align:center; font-size:11.5px; color:var(--text-muted);">
+          No se encontraron Notas de Crédito (Egresos) disponibles para vincular.
+        </div>
+      `;
+      return;
+    }
+
+    modalEgresoCandidatesList.innerHTML = candidates
+      .map((e) => {
+        const diff = Math.abs(Number(e.total || 0) - invTotal);
+        const isExact = diff < 0.01 && e.rfcEmisor === inv.rfcEmisor;
+        const isSameRfc = e.rfcEmisor === inv.rfcEmisor;
+
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #f3f4f6; gap:8px;">
+            <div style="flex:1; min-width:0;">
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span class="badge-warning" style="font-size:9.5px; padding:1px 5px; border-radius:2px; background:#e0e7ff; color:#3730a3; font-weight:700;">EGRESO</span>
+                <strong style="font-size:12px; color:var(--text-main);">${formatMoney(e.total)}</strong>
+                ${isExact ? '<span class="badge-paid" style="font-size:9.5px; padding:1px 4px;">Mismo Proveedor e Importe</span>' : (isSameRfc ? '<span style="font-size:10px; color:#1e40af; background:#dbeafe; padding:1px 4px; border-radius:2px;">Mismo Proveedor</span>' : `<span style="font-size:10.5px; color:var(--text-muted);">Dif: $${diff.toFixed(2)}</span>`)}
+                <span style="font-size:11px; color:var(--text-muted);">${e.fechaEmision ? String(e.fechaEmision).split('T')[0] : ''}</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); font-family:monospace; margin-top:2px;">
+                ${e.uuid.substring(0, 20)}... (${e.emisor || 'Sin emisor'})
+              </div>
+            </div>
+            <button type="button" class="btn-action-small btn-action-primary" onclick="linkInvoiceToEgreso('${e.uuid}')" style="font-size:11px; padding:3px 8px; white-space:nowrap; background:#4338ca; border-color:#4338ca;">
+              Vincular Egreso
+            </button>
+          </div>
+        `;
+      })
+      .join('');
+  };
+
+  window.linkInvoiceToEgreso = async (egresoUuid) => {
+    if (!activeEditingUuid) return;
+    const inv = cachedInvoices.find((i) => i.uuid === activeEditingUuid);
+    const eg = cachedInvoices.find((i) => i.uuid === egresoUuid);
+
+    const confirmMsg = `¿Deseas vincular esta factura de Ingreso (${formatMoney(inv?.total)}) con la Nota de Crédito / Egreso (${formatMoney(eg?.total)})?\nLa factura quedará registrada como "Pagada".`;
+    if (!confirm(confirmMsg)) return;
+
+    if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--info);">Vinculando con Nota de Crédito...</span>';
+
+    try {
+      const res = await fetch('/api/reconciliation/link-egreso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingresoUuid: activeEditingUuid,
+          egresoUuid,
+          observaciones: `Amortizada con Nota de Crédito ${egresoUuid.substring(0, 8)}...`
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeEditModal();
+        await loadTabs();
+        loadData();
+      } else {
+        if (modalStatus) modalStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al vincular con Egreso.'}</span>`;
+      }
+    } catch (err) {
+      if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--error);">Error de conexión con el servidor.</span>';
+    }
+  };
+
+  window.unlinkInvoiceEgreso = async () => {
+    if (!activeEditingUuid) return;
+    if (!confirm('¿Deseas desvincular la Nota de Crédito de esta factura? Pasará a estado "No Pagada".')) {
+      return;
+    }
+
+    if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--info);">Desvinculando Nota de Crédito...</span>';
+
+    try {
+      const res = await fetch('/api/reconciliation/unlink-egreso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingresoUuid: activeEditingUuid
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        closeEditModal();
+        await loadTabs();
+        loadData();
+      } else {
+        if (modalStatus) modalStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al desvincular.'}</span>`;
+      }
+    } catch (err) {
+      if (modalStatus) modalStatus.innerHTML = '<span style="color:var(--error);">Error de conexión con el servidor.</span>';
+    }
+  };
+
+  window.triggerAutoLinkEgresos = async () => {
+    if (
+      !confirm(
+        `¿Deseas auto-vincular todas las facturas de Ingreso con sus Notas de Crédito (Egresos) de monto y proveedor idénticos para "${currentEntidad}" en el periodo ${currentPeriodo}?\n\nLas facturas con coincidencia exacta quedarán registradas como "Pagadas".`
+      )
+    ) {
+      return;
+    }
+
+    const btn = document.getElementById('btn-auto-link-egresos');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Vinculando...';
+    }
+
+    try {
+      const res = await fetch('/api/reconciliation/auto-link-egresos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          periodo: currentPeriodo,
+          entidad: currentEntidad
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        await loadTabs();
+        loadData();
+      } else {
+        alert(data.message || 'Error al auto-vincular Notas de Crédito.');
+      }
+    } catch (err) {
+      alert('Error de conexión al auto-vincular.');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⚡ Auto-vincular Notas de Crédito';
+      }
+    }
   };
 
   window.renderModalBankCandidates = () => {
@@ -1567,6 +1831,13 @@ document.addEventListener('DOMContentLoaded', () => {
       // Excluir facturas canceladas
       if (inv.estadoPago === 'Cancelada') return false;
 
+      // Si el usuario escribe una busqueda, buscar en todas las facturas
+      if (term) {
+        const str = `${inv.uuid} ${inv.emisor || ''} ${inv.rfcEmisor || ''} ${inv.total || ''} ${inv.fechaEmision || ''}`.toLowerCase();
+        return str.includes(term);
+      }
+
+      // Si solo similar, buscar dentro del 15% o coincidencia en RFC o nombre
       if (compareSimilarOnly) {
         const diff = Math.abs((inv.total || 0) - bankMonto);
         const ratio = bankMonto > 0 ? diff / bankMonto : 1;
@@ -1576,11 +1847,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ratio > 0.15 && !isRfcMatch && !isNameMatch) {
           return false;
         }
-      }
-
-      if (term) {
-        const str = `${inv.uuid} ${inv.emisor} ${inv.rfcEmisor} ${inv.total}`.toLowerCase();
-        return str.includes(term);
       }
 
       return true;
@@ -1594,16 +1860,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (candidates.length === 0) {
       compareInvoiceRows.innerHTML = `
-        <tr>
-          <td colspan="3" style="text-align: center; padding: 22px; color: var(--text-muted);">
-            No se encontraron facturas recibidas pendientes con monto similar a ${formatMoney(bankMonto)}.
-            <div style="margin-top: 8px;">
-              <button type="button" class="btn-action-small" onclick="filterCompareCandidates(false)">
-                Mostrar todas las facturas pendientes de este mes
-              </button>
-            </div>
-          </td>
-        </tr>
+        <div style="text-align: center; padding: 26px 16px; color: var(--text-muted); background: #ffffff; border-radius: 4px; border: 1px dashed var(--border);">
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">
+            ${term ? 'No se encontraron facturas con ese criterio' : `Sin facturas con monto similar a ${formatMoney(bankMonto)}`}
+          </div>
+          <div style="font-size: 11.5px; margin-bottom: 12px;">
+            ${term ? `No hay coincidencias para "${term}".` : 'Puedes ver todas las facturas pendientes de este mes haciendo clic abajo:'}
+          </div>
+          <button type="button" class="btn-action-small" onclick="filterCompareCandidates(false); if(compareSearchInput) compareSearchInput.value='';" style="font-size: 11.5px;">
+            Mostrar todas las facturas de este mes
+          </button>
+        </div>
       `;
       return;
     }
@@ -1611,34 +1878,59 @@ document.addEventListener('DOMContentLoaded', () => {
     compareInvoiceRows.innerHTML = candidates
       .map((inv) => {
         const isCurrentlyPaid = inv.estadoPago === 'Pagada';
+        const diff = Math.round(Math.abs((inv.total || 0) - bankMonto) * 100) / 100;
+
+        let diffBadgeHtml = '';
+        if (diff === 0) {
+          diffBadgeHtml = '<span class="compare-candidate-diff diff-exact">✓ Monto Exacto</span>';
+        } else {
+          const sign = (inv.total || 0) > bankMonto ? '+' : '-';
+          diffBadgeHtml = `<span class="compare-candidate-diff diff-near">Dif: ${sign}${formatMoney(diff)}</span>`;
+        }
+
+        const dateStr = inv.fechaEmision ? String(inv.fechaEmision).split('T')[0] : '-';
 
         return `
-          <tr>
-            <td>
-              <div style="font-weight:700; color:var(--text-main); font-size:12.5px;">${inv.emisor || 'Sin emisor'}</div>
-              <div style="font-size:11px; color:var(--text-muted); display:flex; gap:8px; align-items:center; margin-top:2px; flex-wrap:wrap;">
-                <span>Total: <strong style="color:var(--primary);">${formatMoney(inv.total)}</strong></span>
-                <span style="font-family:monospace;">${inv.uuid.substring(0, 14)}...</span>
+          <div class="compare-candidate-card" onclick="linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')" title="Clic para vincular a esta factura y marcarla automáticamente como Pagada">
+            <div class="compare-candidate-left">
+              <div class="compare-candidate-vendor">${inv.emisor || 'Sin emisor'}</div>
+              <div class="compare-candidate-meta">
+                <span class="compare-candidate-rfc">RFC: ${inv.rfcEmisor || '-'}</span>
+                <span>Fecha: <strong>${dateStr}</strong></span>
+                <span style="font-family: monospace;" title="${inv.uuid}">Folio: ${inv.uuid.substring(0, 16)}...</span>
+                ${isCurrentlyPaid ? '<span class="badge-paid" style="font-size: 9.5px; padding: 1px 5px;">Ya Pagada</span>' : ''}
               </div>
-            </td>
-            <td><code style="font-size:11.5px;">${inv.rfcEmisor || '-'}</code></td>
-            <td style="text-align:center; white-space:nowrap;">
-              <button type="button" class="btn-action-small btn-action-primary" onclick="linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')" style="font-size:11px; padding:4px 10px;">
-                ${isCurrentlyPaid ? 'Reasignar' : 'Vincular'}
+            </div>
+            <div class="compare-candidate-right">
+              <div class="compare-candidate-amounts">
+                <div class="compare-candidate-total">${formatMoney(inv.total)}</div>
+                ${diffBadgeHtml}
+              </div>
+              <button type="button" class="compare-candidate-btn" onclick="event.stopPropagation(); linkMovementToInvoice('${activeCompareMovement._id}', '${inv.uuid}')">
+                ✓ ${isCurrentlyPaid ? 'Reasignar y Pagar' : 'Vincular y Pagar'}
               </button>
-            </td>
-          </tr>
+            </div>
+          </div>
         `;
       })
       .join('');
   };
 
   window.linkMovementToInvoice = async (movimientoId, invoiceUuid) => {
-    if (!confirm('Desea vincular este pago bancario con la factura seleccionada? La factura quedara registrada como "Pagada".')) {
-      return;
+    if (!activeCompareMovement) return;
+
+    const targetInv = cachedInvoices.find((i) => i.uuid === invoiceUuid);
+    const isCurrentlyPaid = targetInv?.estadoPago === 'Pagada';
+
+    if (isCurrentlyPaid) {
+      if (!confirm(`La factura de "${targetInv?.emisor || 'proveedor'}" ya está marcada como "Pagada". ¿Deseas reasignarle este nuevo pago bancario?`)) {
+        return;
+      }
     }
 
-    if (compareStatus) compareStatus.innerHTML = '<span style="color:var(--info);">Vinculando pago con factura...</span>';
+    if (compareStatus) {
+      compareStatus.innerHTML = '<span style="color:var(--info); font-weight:600;">⚡ Vinculando pago y marcando factura como Pagada (Manual)...</span>';
+    }
 
     try {
       const res = await fetch('/api/reconciliation/link-manual', {
@@ -1655,12 +1947,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok && data.success) {
         closeCompareModal();
         await loadTabs();
-        loadData();
+        await loadData();
       } else {
-        if (compareStatus) compareStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al vincular.'}</span>`;
+        if (compareStatus) {
+          compareStatus.innerHTML = `<span style="color:var(--error); font-weight:600;">${data.message || 'Error al vincular.'}</span>`;
+        }
       }
     } catch (err) {
-      if (compareStatus) compareStatus.innerHTML = `<span style="color:var(--error);">Error de conexion con el servidor.</span>`;
+      if (compareStatus) {
+        compareStatus.innerHTML = `<span style="color:var(--error);">Error de conexión con el servidor.</span>`;
+      }
     }
   };
 

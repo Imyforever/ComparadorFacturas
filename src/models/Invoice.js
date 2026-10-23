@@ -102,6 +102,20 @@ const invoiceSchema = new mongoose.Schema(
       diferencia: Number,
       conceptoBanco: String,
       referencia: String
+    },
+    // Datos de la Nota de Credito (Egreso) si la factura de Ingreso fue liquidada con un Egreso
+    egresoAsociado: {
+      uuid: { type: String, trim: true, uppercase: true },
+      total: Number,
+      fechaEmision: String,
+      emisor: String
+    },
+    // Si esta factura es un Egreso, a que factura de Ingreso fue aplicada
+    ingresoAsociado: {
+      uuid: { type: String, trim: true, uppercase: true },
+      total: Number,
+      fechaEmision: String,
+      emisor: String
     }
   },
   {

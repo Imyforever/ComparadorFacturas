@@ -389,6 +389,21 @@ router.post('/link-manual', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Factura no encontrada.' });
     }
 
+    // Si la factura tenia otro movimiento bancario asociado, liberarlo
+    if (invoice.pagoAsociado?.movimientoId && String(invoice.pagoAsociado.movimientoId) !== String(movement._id)) {
+      await BankMovement.findByIdAndUpdate(invoice.pagoAsociado.movimientoId, {
+        $set: { conciliado: false, facturaUuid: null }
+      });
+    }
+
+    // Si el movimiento bancario estaba vinculado a otra factura, liberarla
+    if (movement.facturaUuid && movement.facturaUuid !== invoice.uuid) {
+      await Invoice.findOneAndUpdate(
+        { uuid: movement.facturaUuid },
+        { $set: { estadoPago: 'No Pagada', pagoAsociado: null, editadoManualmente: false } }
+      );
+    }
+
     // Vincular Factura con Movimiento Bancario
     invoice.estadoPago = 'Pagada';
     invoice.editadoManualmente = true;
@@ -402,8 +417,10 @@ router.post('/link-manual', async (req, res) => {
       conceptoBanco: movement.concepto,
       referencia: movement.origenReferencia || ''
     };
-    if (observaciones) {
+    if (observaciones && observaciones.trim()) {
       invoice.observaciones = observaciones.trim();
+    } else if (!invoice.observaciones || invoice.observaciones === 'Sin observaciones') {
+      invoice.observaciones = `Vinculado manualmente a retiro de ${movement.banco || 'Banco'} ($${(movement.monto || 0).toFixed(2)})`;
     }
     await invoice.save();
 
@@ -414,7 +431,9 @@ router.post('/link-manual', async (req, res) => {
 
     return res.json({
       success: true,
-      message: `Pago bancario de $${movement.monto.toFixed(2)} vinculado exitosamente con la factura ${invoice.uuid.substring(0, 8)}... (${invoice.emisor}).`
+      message: `Pago bancario de $${movement.monto.toFixed(2)} vinculado exitosamente con la factura ${invoice.uuid.substring(0, 8)}... (${invoice.emisor}). Marcada como Pagada (Manual).`,
+      invoice,
+      movement
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -460,6 +479,258 @@ router.post('/unlink-manual', async (req, res) => {
     return res.json({
       success: true,
       message: 'Vinculacion manual removida exitosamente.'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.2.1 Vincular manualmente una factura de Ingreso con una Nota de Credito (Egreso)
+router.post('/link-egreso', async (req, res) => {
+  try {
+    const { ingresoUuid, egresoUuid, observaciones } = req.body;
+    if (!ingresoUuid || !egresoUuid) {
+      return res.status(400).json({ success: false, message: 'Debe especificar ingresoUuid y egresoUuid.' });
+    }
+
+    const cleanIngresoUuid = ingresoUuid.trim().toUpperCase();
+    const cleanEgresoUuid = egresoUuid.trim().toUpperCase();
+
+    const ingreso = await Invoice.findOne({ uuid: cleanIngresoUuid });
+    if (!ingreso) {
+      return res.status(404).json({ success: false, message: 'Factura de ingreso no encontrada.' });
+    }
+
+    const egreso = await Invoice.findOne({ uuid: cleanEgresoUuid });
+    if (!egreso) {
+      return res.status(404).json({ success: false, message: 'Nota de crédito (Egreso) no encontrada.' });
+    }
+
+    if (egreso.efecto !== 'Egreso') {
+      return res.status(400).json({ success: false, message: 'El comprobante a vincular debe ser de tipo "Egreso" (Nota de Crédito).' });
+    }
+
+    // Si el ingreso tenia un movimiento bancario previamente vinculado, liberarlo
+    if (ingreso.pagoAsociado?.movimientoId) {
+      await BankMovement.findByIdAndUpdate(ingreso.pagoAsociado.movimientoId, {
+        $set: { conciliado: false, facturaUuid: null }
+      });
+    }
+
+    // Si el egreso ya estaba asociado a otro ingreso, desvincular el previo
+    if (egreso.ingresoAsociado?.uuid && egreso.ingresoAsociado.uuid !== ingreso.uuid) {
+      await Invoice.findOneAndUpdate(
+        { uuid: egreso.ingresoAsociado.uuid },
+        {
+          $set: {
+            egresoAsociado: null,
+            pagoAsociado: null,
+            estadoPago: 'No Pagada',
+            editadoManualmente: false
+          }
+        }
+      );
+    }
+
+    // Vincular Factura de Ingreso
+    ingreso.estadoPago = 'Pagada';
+    ingreso.editadoManualmente = true;
+    ingreso.fechaEdicionManual = new Date();
+    ingreso.egresoAsociado = {
+      uuid: egreso.uuid,
+      total: egreso.total,
+      fechaEmision: egreso.fechaEmision,
+      emisor: egreso.emisor
+    };
+    ingreso.pagoAsociado = {
+      movimientoId: null,
+      banco: 'Nota de Crédito (Egreso)',
+      fechaPago: egreso.fechaEmision ? String(egreso.fechaEmision).split('T')[0] : (ingreso.fechaEmision ? String(ingreso.fechaEmision).split('T')[0] : ''),
+      montoRetiro: egreso.total,
+      diferencia: Math.round(Math.abs((egreso.total || 0) - (ingreso.total || 0)) * 100) / 100,
+      conceptoBanco: `Nota de Crédito SAT: ${egreso.uuid}`,
+      referencia: egreso.uuid
+    };
+    if (observaciones) {
+      ingreso.observaciones = observaciones.trim();
+    } else if (!ingreso.observaciones || ingreso.observaciones === 'Sin observaciones') {
+      ingreso.observaciones = `Amortizada con Nota de Crédito ${egreso.uuid.substring(0, 8)}...`;
+    }
+    await ingreso.save();
+
+    // Actualizar Nota de Crédito (Egreso)
+    egreso.ingresoAsociado = {
+      uuid: ingreso.uuid,
+      total: ingreso.total,
+      fechaEmision: ingreso.fechaEmision,
+      emisor: ingreso.emisor
+    };
+    egreso.editadoManualmente = true;
+    egreso.fechaEdicionManual = new Date();
+    if (!egreso.observaciones || egreso.observaciones === 'Sin observaciones') {
+      egreso.observaciones = `Aplicada a Factura ${ingreso.uuid.substring(0, 8)}... (${ingreso.emisor})`;
+    }
+    await egreso.save();
+
+    return res.json({
+      success: true,
+      message: `Factura ${ingreso.uuid.substring(0, 8)}... vinculada exitosamente con la Nota de Crédito ${egreso.uuid.substring(0, 8)}... ($${(egreso.total || 0).toFixed(2)}).`,
+      ingreso,
+      egreso
+    });
+  } catch (err) {
+    console.error('Error vinculando egreso:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.2.2 Desvincular manualmente una factura de su Nota de Credito (Egreso)
+router.post('/unlink-egreso', async (req, res) => {
+  try {
+    const { ingresoUuid, egresoUuid } = req.body;
+    if (!ingresoUuid && !egresoUuid) {
+      return res.status(400).json({ success: false, message: 'Debe especificar ingresoUuid o egresoUuid.' });
+    }
+
+    let targetIngreso = null;
+    let targetEgreso = null;
+
+    if (ingresoUuid) {
+      targetIngreso = await Invoice.findOne({ uuid: ingresoUuid.trim().toUpperCase() });
+      if (targetIngreso && targetIngreso.egresoAsociado?.uuid) {
+        targetEgreso = await Invoice.findOne({ uuid: targetIngreso.egresoAsociado.uuid });
+      }
+    } else if (egresoUuid) {
+      targetEgreso = await Invoice.findOne({ uuid: egresoUuid.trim().toUpperCase() });
+      if (targetEgreso && targetEgreso.ingresoAsociado?.uuid) {
+        targetIngreso = await Invoice.findOne({ uuid: targetEgreso.ingresoAsociado.uuid });
+      }
+    }
+
+    if (targetIngreso) {
+      targetIngreso.egresoAsociado = null;
+      if (targetIngreso.pagoAsociado?.banco?.includes('Nota de Crédito') || targetIngreso.pagoAsociado?.referencia === targetEgreso?.uuid) {
+        targetIngreso.pagoAsociado = null;
+        targetIngreso.estadoPago = 'No Pagada';
+        targetIngreso.editadoManualmente = false;
+      }
+      await targetIngreso.save();
+    }
+
+    if (targetEgreso) {
+      targetEgreso.ingresoAsociado = null;
+      targetEgreso.observaciones = '';
+      targetEgreso.editadoManualmente = false;
+      await targetEgreso.save();
+    }
+
+    return res.json({
+      success: true,
+      message: 'Nota de crédito desvinculada exitosamente.'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3.2.3 Auto-vincular facturas de Ingreso con Notas de Credito (Egresos) de monto y proveedor identicos
+router.post('/auto-link-egresos', async (req, res) => {
+  try {
+    const { periodo, entidad } = req.body;
+    if (!periodo || !entidad) {
+      return res.status(400).json({ success: false, message: 'Debe especificar periodo y entidad.' });
+    }
+
+    const [ingresos, egresos] = await Promise.all([
+      Invoice.find({ periodo, entidad, efecto: 'Ingreso', estadoSat: 'Vigente' }),
+      Invoice.find({ periodo, entidad, efecto: 'Egreso', estadoSat: 'Vigente' })
+    ]);
+
+    const usedEgresoUuids = new Set(
+      ingresos
+        .map((i) => i.egresoAsociado?.uuid)
+        .filter(Boolean)
+    );
+
+    const availableEgresos = egresos.filter(
+      (e) => !usedEgresoUuids.has(e.uuid) && (!e.ingresoAsociado || !e.ingresoAsociado.uuid)
+    );
+
+    const unlinkedIngresos = ingresos.filter(
+      (i) => !i.egresoAsociado?.uuid && (!i.pagoAsociado || !i.pagoAsociado.movimientoId) && i.estadoPago !== 'Pagada'
+    );
+
+    let linkedCount = 0;
+    const bulkOps = [];
+
+    for (const ing of unlinkedIngresos) {
+      const matchIdx = availableEgresos.findIndex(
+        (e) => e.rfcEmisor === ing.rfcEmisor && Math.abs((e.total || 0) - (ing.total || 0)) < 0.01
+      );
+
+      if (matchIdx !== -1) {
+        const eg = availableEgresos[matchIdx];
+        availableEgresos.splice(matchIdx, 1);
+        linkedCount++;
+
+        bulkOps.push({
+          updateOne: {
+            filter: { uuid: ing.uuid },
+            update: {
+              $set: {
+                estadoPago: 'Pagada',
+                editadoManualmente: true,
+                fechaEdicionManual: new Date(),
+                egresoAsociado: {
+                  uuid: eg.uuid,
+                  total: eg.total,
+                  fechaEmision: eg.fechaEmision,
+                  emisor: eg.emisor
+                },
+                pagoAsociado: {
+                  movimientoId: null,
+                  banco: 'Nota de Crédito (Egreso)',
+                  fechaPago: eg.fechaEmision ? String(eg.fechaEmision).split('T')[0] : '',
+                  montoRetiro: eg.total,
+                  diferencia: 0.0,
+                  conceptoBanco: `Nota de Crédito SAT: ${eg.uuid}`,
+                  referencia: eg.uuid
+                },
+                observaciones: `Amortizada automáticamente con Nota de Crédito ${eg.uuid.substring(0, 8)}...`
+              }
+            }
+          }
+        });
+
+        bulkOps.push({
+          updateOne: {
+            filter: { uuid: eg.uuid },
+            update: {
+              $set: {
+                ingresoAsociado: {
+                  uuid: ing.uuid,
+                  total: ing.total,
+                  fechaEmision: ing.fechaEmision,
+                  emisor: ing.emisor
+                },
+                editadoManualmente: true,
+                fechaEdicionManual: new Date(),
+                observaciones: `Aplicada a Factura ${ing.uuid.substring(0, 8)}... (${ing.emisor})`
+              }
+            }
+          }
+        });
+      }
+    }
+
+    if (bulkOps.length > 0) {
+      await Invoice.bulkWrite(bulkOps);
+    }
+
+    return res.json({
+      success: true,
+      linkedCount,
+      message: `Se asociaron exitosamente ${linkedCount} facturas con sus Notas de Crédito correspondientes.`
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -804,6 +1075,14 @@ router.patch('/invoice/:uuid', async (req, res) => {
         await BankMovement.findByIdAndUpdate(invoice.pagoAsociado.movimientoId, {
           $set: { conciliado: false, facturaUuid: null }
         });
+      }
+      // Liberar Nota de Credito si tenia una asociada
+      if (invoice.egresoAsociado?.uuid) {
+        await Invoice.findOneAndUpdate(
+          { uuid: invoice.egresoAsociado.uuid },
+          { $set: { ingresoAsociado: null, editadoManualmente: false, observaciones: '' } }
+        );
+        invoice.egresoAsociado = null;
       }
       invoice.pagoAsociado = null;
       invoice.editadoManualmente = false;

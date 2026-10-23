@@ -137,14 +137,19 @@
           <button type="button" class="filter-btn" data-filter="canceladas">Canceladas</button>
         </div>
 
-        <!-- Alternador de Vista: Detallada vs Agrupada por Emisor -->
-        <div class="view-mode-toggle">
-          <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas">
-            Detalle
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="btn-action-small" id="btn-auto-link-egresos" onclick="triggerAutoLinkEgresos()" style="background: #eef2ff; color: #4338ca; border-color: #c7d2fe; font-weight: 600;" title="Vincular automáticamente facturas con Notas de Crédito (Egresos) de monto y RFC idénticos">
+            ⚡ Auto-vincular Notas de Crédito
           </button>
-          <button type="button" class="view-mode-btn" id="btn-view-grouped" title="Agrupar por emisor">
-            Por Emisor
-          </button>
+          <!-- Alternador de Vista: Detallada vs Agrupada por Emisor -->
+          <div class="view-mode-toggle">
+            <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas">
+              Detalle
+            </button>
+            <button type="button" class="view-mode-btn" id="btn-view-grouped" title="Agrupar por emisor">
+              Por Emisor
+            </button>
+          </div>
         </div>
       </div>
 
@@ -333,10 +338,41 @@
           </button>
         </div>
 
-        <!-- SECCION: Vincular con Pago Bancario por Importe -->
-        <div style="margin-top: 14px; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: #fafafa;">
+        <!-- SECCION 1: Vincular con Nota de Credito (Egreso SAT) -->
+        <div id="modal-egreso-section" style="margin-top: 14px; border: 1px solid #c7d2fe; border-radius: 4px; padding: 12px; background: #f5f7ff;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-            <strong style="font-size: 12.5px; color: var(--text-main);">Vincular con Pago Bancario por Importe</strong>
+            <strong style="font-size: 12.5px; color: #3730a3;">📄 Vincular con Nota de Crédito (Egreso SAT)</strong>
+            <span id="modal-egreso-match-badge" class="badge-na" style="font-size: 10.5px;">Buscando notas de crédito...</span>
+          </div>
+
+          <!-- Si ya tiene un egreso asociado -->
+          <div id="modal-linked-egreso-card" style="display: none; background: #ffffff; border: 1px solid #86efac; border-left: 4px solid #16a34a; border-radius: 3px; padding: 10px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+              <div>
+                <span class="badge-paid" style="font-size: 10px; padding: 1px 6px;">NOTA DE CRÉDITO ASOCIADA</span>
+                <span style="font-weight: 700; font-size: 12.5px; color: var(--text-main); margin-left: 4px;" id="modal-linked-egreso-monto">$0.00</span>
+                <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;" id="modal-linked-egreso-fecha">Fecha: -</span>
+                <div style="font-size: 11px; font-family: monospace; color: var(--text-main); margin-top: 4px;" id="modal-linked-egreso-uuid">-</div>
+              </div>
+              <button type="button" class="btn-action-small" onclick="unlinkInvoiceEgreso()" style="color: var(--error); border-color: #fca5a5; font-size: 11px; white-space: nowrap;">
+                Desvincular
+              </button>
+            </div>
+          </div>
+
+          <!-- Buscador y lista de notas de credito candidatas -->
+          <div id="modal-egreso-candidates-container">
+            <input type="text" id="modal-egreso-search-input" class="search-input" placeholder="Buscar nota de crédito por UUID o importe..." style="width: 100%; height: 30px; font-size: 11.5px; margin-bottom: 6px;" oninput="renderModalEgresoCandidates()">
+            <div id="modal-egreso-candidates-list" style="max-height: 140px; overflow-y: auto; border: 1px solid var(--border); border-radius: 3px; background: #ffffff;">
+              <!-- Se inyectan las notas de credito disponibles -->
+            </div>
+          </div>
+        </div>
+
+        <!-- SECCION 2: Vincular con Pago Bancario por Importe -->
+        <div id="modal-bank-section" style="margin-top: 14px; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: #fafafa;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <strong style="font-size: 12.5px; color: var(--text-main);">🏦 Vincular con Pago Bancario por Importe</strong>
             <span id="modal-bank-match-badge" class="badge-na" style="font-size: 10.5px;">Buscando coincidencias...</span>
           </div>
 
@@ -497,42 +533,12 @@
 
           <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar proveedor, RFC o folio..." style="width: 100%; margin-bottom: 8px;" oninput="renderCompareInvoiceList()">
 
-          <div class="compare-table-container">
-            <table class="table-excel" style="width: 100%;">
-              <thead>
-                <tr>
-                  <th>Proveedor</th>
-                  <th style="width: 130px;">RFC</th>
-                  <th style="width: 110px; text-align: center;">Acción</th>
-                </tr>
-              </thead>
-              <tbody id="compare-invoice-rows">
-                <!-- Se llena dinamicamente -->
-              </tbody>
-            </table>
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px;">
+            Haz clic en cualquier factura para vincularla a este pago bancario y marcarla automáticamente como <strong>Pagada (Manual)</strong>:
           </div>
-        </div>
 
-        <!-- Aclaracion o Gasto no Facturable -->
-        <div class="compare-clarification-box" style="margin-top: 16px;">
-          <div style="font-weight: 600; font-size: 12px; color: var(--text-main); margin-bottom: 6px;">
-            O clasificar sin factura:
-          </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <select id="compare-category-select" class="form-input" style="width: 180px; height: 34px; font-size: 12px;">
-              <option value="">Categoría...</option>
-              <option value="Comision Bancaria">Comisión Bancaria</option>
-              <option value="Impuestos SAT / IMSS">Impuestos SAT / IMSS</option>
-              <option value="Nomina / Sueldos">Nómina / Sueldos</option>
-              <option value="Retiro en Efectivo">Retiro en Efectivo</option>
-              <option value="Transferencia entre Cuentas">Transferencia</option>
-              <option value="Sin Factura Requerida">Sin Factura</option>
-              <option value="Aclaracion Pendiente">Aclaración</option>
-            </select>
-            <input type="text" id="compare-note-input" class="form-input" style="flex: 1; height: 34px; font-size: 12px; min-width: 180px;" placeholder="Nota o motivo...">
-            <button type="button" class="btn-action" onclick="saveBankClarification()" style="font-size: 12px;">
-              Guardar
-            </button>
+          <div class="compare-list-container" id="compare-invoice-rows">
+            <!-- Se llena dinamicamente con tarjetas clickeables para vincular y pagar -->
           </div>
         </div>
 
