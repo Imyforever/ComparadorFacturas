@@ -1144,17 +1144,20 @@ body.login-page {
   border-radius: 4px;
   width: 100%;
   max-width: 520px;
+  max-height: 92vh;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: 10px 16px;
   border-bottom: 2px solid var(--primary);
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -1178,7 +1181,9 @@ body.login-page {
 }
 
 .modal-body {
-  padding: 16px;
+  padding: 12px 16px;
+  overflow-y: auto;
+  flex: 1 1 auto;
 }
 
 .modal-info-box {
@@ -1201,12 +1206,13 @@ body.login-page {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-top: 1px solid var(--border);
   background: #fafafa;
   border-radius: 0 0 4px 4px;
   flex-wrap: wrap;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .btn-action-small {
@@ -1291,25 +1297,31 @@ body.login-page {
   border: 1px solid #fde68a;
 }
 
-/* Modal de Comparacion Manual */
+/* Modal de Comparacion / Vinculacion Manual */
+.compare-modal-card {
+  max-width: 740px !important;
+  width: 95% !important;
+  max-height: 90vh !important;
+}
+
 .compare-bank-card {
   background-color: #f8fafc;
   border: 1px solid #e2e8f0;
   border-left: 4px solid var(--primary);
   border-radius: 4px;
-  padding: 12px 14px;
+  padding: 8px 12px;
 }
 
 .compare-list-container {
-  max-height: 320px;
+  max-height: 200px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: #f9fafb;
-  padding: 8px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .compare-candidate-card {
@@ -1319,28 +1331,28 @@ body.login-page {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
-  padding: 10px 14px;
+  padding: 7px 10px;
   cursor: pointer;
   transition: all 0.15s ease-in-out;
-  gap: 12px;
+  gap: 10px;
 }
 
 .compare-candidate-card:hover {
   border-color: var(--primary);
   background: #f0fdf4;
-  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.12);
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.12);
   transform: translateY(-1px);
 }
 
 .compare-candidate-card.selected {
   border: 2px solid var(--primary);
   background: #ecfdf5;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
 
 .compare-radio-circle {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid #cbd5e1;
   display: flex;
@@ -1357,15 +1369,6 @@ body.login-page {
   color: #ffffff;
 }
 
-.compare-comment-box {
-  transition: all 0.2s ease;
-}
-
-.compare-comment-box.active {
-  border-color: var(--primary) !important;
-  box-shadow: 0 1px 5px rgba(16, 185, 129, 0.18);
-}
-
 .compare-candidate-left {
   flex: 1;
   min-width: 0;
@@ -1373,26 +1376,26 @@ body.login-page {
 
 .compare-candidate-vendor {
   font-weight: 700;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-main);
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .compare-candidate-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: 2px;
+  font-size: 10.5px;
   color: var(--text-muted);
 }
 
 .compare-candidate-rfc {
   font-family: monospace;
-  font-size: 11px;
+  font-size: 10.5px;
   background: #f3f4f6;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 2px;
   color: var(--text-main);
   font-weight: 600;
@@ -1401,7 +1404,7 @@ body.login-page {
 .compare-candidate-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -1410,21 +1413,21 @@ body.login-page {
 }
 
 .compare-candidate-total {
-  font-size: 14.5px;
+  font-size: 13.5px;
   font-weight: 800;
   color: var(--primary);
 }
 
 .compare-candidate-diff {
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .compare-candidate-diff.diff-exact {
   color: #059669;
   background: #ecfdf5;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 2px;
   display: inline-block;
 }
@@ -1438,8 +1441,8 @@ body.login-page {
   color: #ffffff;
   border: 1px solid var(--primary);
   font-weight: 700;
-  font-size: 11.5px;
-  padding: 6px 14px;
+  font-size: 11px;
+  padding: 5px 12px;
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
@@ -1452,7 +1455,63 @@ body.login-page {
 .compare-candidate-btn:hover {
   background: var(--primary-dark);
   border-color: var(--primary-dark);
-  box-shadow: 0 2px 5px rgba(16, 185, 129, 0.25);
+  box-shadow: 0 1px 4px rgba(16, 185, 129, 0.2);
+}
+
+.compare-comment-box {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  transition: all 0.2s ease;
+}
+
+.compare-comment-box.active {
+  border-color: var(--primary) !important;
+  box-shadow: 0 1px 5px rgba(16, 185, 129, 0.18);
+}
+
+/* Reglas responsivas de altura y ancho para el Modal */
+@media (max-height: 850px) {
+  .compare-modal-card {
+    max-height: 94vh !important;
+  }
+  .compare-modal-card .modal-header {
+    padding: 8px 14px;
+  }
+  .compare-modal-card .modal-body {
+    padding: 8px 14px;
+  }
+  .compare-modal-card .modal-footer {
+    padding: 8px 14px;
+  }
+  .compare-list-container {
+    max-height: 165px;
+  }
+  .compare-bank-card {
+    padding: 6px 10px;
+  }
+  .compare-candidate-card {
+    padding: 5px 8px;
+    gap: 8px;
+  }
+  .compare-comment-box {
+    margin-top: 6px !important;
+    padding: 6px 10px !important;
+  }
+}
+
+@media (max-height: 700px) {
+  .compare-list-container {
+    max-height: 125px;
+  }
+  .compare-bank-card div[style*="font-size: 17px"] {
+    font-size: 15px !important;
+  }
+  .compare-modal-card .modal-header h3 {
+    font-size: 13px;
+  }
 }
 
 /* ================= MEDIA QUERIES ADICIONALES ================= */
@@ -1566,6 +1625,21 @@ body.login-page {
   .btn-clear-banner {
     width: 100%;
     text-align: center;
+  }
+
+  .compare-modal-card {
+    width: 98% !important;
+  }
+
+  .compare-candidate-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .compare-candidate-right {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 

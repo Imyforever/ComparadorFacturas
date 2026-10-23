@@ -138,9 +138,9 @@
         </div>
 
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-          <button type="button" class="btn-action-small" id="btn-auto-link-egresos" onclick="triggerAutoLinkEgresos()" style="background: #eef2ff; color: #4338ca; border-color: #c7d2fe; font-weight: 600;" title="Vincular automáticamente facturas con Notas de Crédito (Egresos) de monto y RFC idénticos">
+          <!-- <button type="button" class="btn-action-small" id="btn-auto-link-egresos" onclick="triggerAutoLinkEgresos()" style="background: #eef2ff; color: #4338ca; border-color: #c7d2fe; font-weight: 600;" title="Vincular automáticamente facturas con Notas de Crédito (Egresos) de monto y RFC idénticos">
             ⚡ Auto-vincular Notas de Crédito
-          </button>
+          </button> -->
           <!-- Alternador de Vista: Detallada vs Agrupada por Emisor -->
           <div class="view-mode-toggle">
             <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas">
@@ -486,7 +486,7 @@
 
   <!-- Modal para Vincular Pago Bancario -->
   <div id="compare-manual-modal" class="modal-backdrop hidden">
-    <div class="modal-card" style="max-width: 760px; width: 95%;">
+    <div class="modal-card compare-modal-card">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
           <h3 style="margin: 0;">Vincular Pago Bancario</h3>
@@ -501,23 +501,23 @@
           <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
             <div style="flex: 1; min-width: 250px;">
               <span class="bank-badge bank-badge-generic" id="compare-modal-banco" style="margin-bottom: 4px; display: inline-block;">BANCO</span>
-              <div style="font-weight: 700; font-size: 13.5px; color: var(--text-main);" id="compare-modal-concepto">
+              <div style="font-weight: 700; font-size: 13px; color: var(--text-main);" id="compare-modal-concepto">
                 Concepto bancario
               </div>
-              <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
                 Fecha: <strong id="compare-modal-fecha">-</strong> | Cuenta: <strong id="compare-modal-cuenta">-</strong> | RFC: <code id="compare-modal-rfc">-</code>
               </div>
             </div>
             <div style="text-align: right;">
               <span style="font-size: 11px; color: var(--text-muted); display: block;">Monto</span>
-              <span style="font-size: 18px; font-weight: 800; color: var(--text-main);" id="compare-modal-monto">$0.00</span>
+              <span style="font-size: 17px; font-weight: 800; color: var(--text-main);" id="compare-modal-monto">$0.00</span>
             </div>
           </div>
         </div>
 
         <!-- Buscador y Filtros para Facturas Recibidas Disponibles -->
-        <div style="margin-top: 16px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+        <div style="margin-top: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
             <label style="font-size: 12px; font-weight: 700; color: var(--text-main);">
               Facturas disponibles:
             </label>
@@ -531,9 +531,9 @@
             </div>
           </div>
 
-          <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar proveedor, RFC o folio..." style="width: 100%; margin-bottom: 8px;" oninput="renderCompareInvoiceList()">
+          <input type="text" id="compare-search-input" class="search-input" placeholder="Buscar proveedor, RFC o folio..." style="width: 100%; margin-bottom: 6px;" oninput="renderCompareInvoiceList()">
 
-          <div style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">
             Selecciona una factura de la lista y escribe un comentario para vincularla y marcarla automáticamente como <strong>Pagada (Manual)</strong>:
           </div>
 
@@ -542,17 +542,17 @@
           </div>
 
           <!-- Caja de Comentario y Factura Seleccionada -->
-          <div class="compare-comment-box" id="compare-comment-box" style="margin-top: 12px; background: #ffffff; border: 1px solid var(--border); border-radius: 4px; padding: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
-              <label for="compare-comment-input" style="font-size: 12px; font-weight: 700; color: var(--text-main); margin: 0;">
+          <div class="compare-comment-box" id="compare-comment-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 4px;">
+              <label for="compare-comment-input" style="font-size: 11.5px; font-weight: 700; color: var(--text-main); margin: 0;">
                 Comentario u Observación para la Factura:
               </label>
-              <span id="compare-selected-badge" style="font-size: 11px; color: var(--text-muted); font-style: italic;">
+              <span id="compare-selected-badge" style="font-size: 10.5px; color: var(--text-muted); font-style: italic;">
                 Ninguna factura seleccionada
               </span>
             </div>
-            <input type="text" id="compare-comment-input" class="form-input" placeholder="Escribe un comentario opcional (ej: Pago autorizado, liquidación quincenal, transferencia directa...)" style="width: 100%; height: 34px; font-size: 12px;" />
-            <div id="compare-selected-preview" style="font-size: 11.5px; color: var(--text-muted); margin-top: 6px;">
+            <input type="text" id="compare-comment-input" class="form-input" placeholder="Escribe un comentario opcional (ej: Pago autorizado, liquidación quincenal, transferencia directa...)" style="width: 100%; font-size: 11.5px;">
+            <div id="compare-selected-preview" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
               💡 Haz clic en una factura de arriba para seleccionarla y guardarla.
             </div>
           </div>
