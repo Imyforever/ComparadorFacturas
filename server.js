@@ -157,6 +157,26 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Manejador de rutas no encontradas para la API
+app.use('/api/*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Ruta de API no encontrada: ${req.method} ${req.originalUrl}`
+  });
+});
+
+// Middleware global de manejo de errores
+app.use((err, req, res, next) => {
+  console.error('[Error No Controlado]:', err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Error interno del servidor.'
+  });
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`\n======================================================`);

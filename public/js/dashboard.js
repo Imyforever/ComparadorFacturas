@@ -246,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cachedInvoices = data.invoices || [];
         cachedUnmatchedMovements = data.unmatchedBankMovements || [];
         updateSummary(data.summary);
-        updateCfdiLockState(data.hasCfdiFile, data.summary.totalFacturas);
+        updateCfdiLockState(data.hasCfdiFile, data.summary?.totalFacturas || 0);
         renderBankStatements(data.bankStatements || []);
         renderUnmatchedBankMovements();
         updateAnalyzedOptions();
@@ -254,8 +254,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Actualizar contador de la pestania activa
         const tabObj = cachedTabs.find((t) => t.nombre === currentEntidad);
-        if (tabObj && tabObj.facturasCount !== data.summary.totalFacturas) {
-          tabObj.facturasCount = data.summary.totalFacturas;
+        if (tabObj && tabObj.facturasCount !== (data.summary?.totalFacturas || 0)) {
+          tabObj.facturasCount = data.summary?.totalFacturas || 0;
           renderTabs();
         }
       } else {
