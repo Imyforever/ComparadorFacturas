@@ -262,7 +262,8 @@ document.addEventListener('DOMContentLoaded', () => {
         invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">${data.message || 'Error cargando datos.'}</td></tr>`;
       }
     } catch (err) {
-      invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">Error de conexion con el servidor.</td></tr>`;
+      console.error('Error cargando datos en dashboard:', err);
+      invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">${err.message ? `Error: ${err.message}` : 'Error de conexion con el servidor.'}</td></tr>`;
     }
   }
 
@@ -759,6 +760,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 13. Aplicar Filtro y Renderizar
   function applyFilterAndRender() {
+    const query = (searchInput?.value || '').trim();
     const minPriceVal = parseFloat(filterMinPrice?.value);
     const maxPriceVal = parseFloat(filterMaxPrice?.value);
     const hasMinPrice = !isNaN(minPriceVal) && minPriceVal >= 0;
