@@ -637,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
               `;
             }
           } else {
-            paymentDetailHtml = '<span style="color:var(--success); font-weight:600; font-size:11.5px;">✓ Pagada (Manual)</span>';
+            paymentDetailHtml = '<span style="color:var(--success); font-weight:600; font-size:11.5px;">Pagada (Manual)</span>';
           }
         } else if (inv.efecto === 'Egreso') {
           if (inv.ingresoAsociado && inv.ingresoAsociado.uuid) {
@@ -1313,7 +1313,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('btn-auto-link-egresos');
     if (btn) {
       btn.disabled = true;
-      btn.textContent = '⏳ Vinculando...';
+      btn.textContent = 'Vinculando...';
     }
 
     try {
@@ -1339,7 +1339,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '⚡ Auto-vincular Notas de Crédito';
+        btn.textContent = 'Auto-vincular Notas de Crédito';
       }
     }
   };
@@ -1896,14 +1896,14 @@ document.addEventListener('DOMContentLoaded', () => {
       compareSelectedBadge.innerHTML = '<span style="color:var(--text-muted); font-style:italic;">Ninguna factura seleccionada</span>';
     }
     if (compareSelectedPreview) {
-      compareSelectedPreview.innerHTML = '💡 Haz clic en una factura de arriba para seleccionarla y guardarla.';
+      compareSelectedPreview.innerHTML = 'Haz clic en una factura de arriba para seleccionarla y guardarla.';
     }
     if (compareCommentBox) {
       compareCommentBox.classList.remove('active');
     }
     if (btnSaveCompareLink) {
       btnSaveCompareLink.disabled = true;
-      btnSaveCompareLink.textContent = '✓ Guardar y Marcar como Pagada';
+      btnSaveCompareLink.textContent = 'Guardar y Marcar como Pagada';
     }
 
     renderCompareInvoiceList();
@@ -1940,9 +1940,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (isThis) {
         el.classList.add('selected');
         const circle = el.querySelector('.compare-radio-circle');
-        if (circle) circle.innerHTML = '<span style="font-size:11px; font-weight:700;">✓</span>';
+        if (circle) circle.innerHTML = '<span style="font-size:11px; font-weight:700;">●</span>';
         const btn = el.querySelector('.compare-candidate-btn');
-        if (btn) btn.textContent = '✓ Seleccionada';
+        if (btn) btn.textContent = 'Seleccionada';
       } else {
         el.classList.remove('selected');
         const circle = el.querySelector('.compare-radio-circle');
@@ -1975,7 +1975,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnSaveCompareLink) {
       btnSaveCompareLink.disabled = false;
       const firstName = (inv.emisor || 'Factura').split(' ')[0];
-      btnSaveCompareLink.textContent = `✓ Vincular a ${firstName} y Guardar como Pagada`;
+      btnSaveCompareLink.textContent = `Vincular a ${firstName} y Guardar como Pagada`;
     }
 
     if (compareCommentInput) {
@@ -2045,7 +2045,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let diffBadgeHtml = '';
         if (diff === 0) {
-          diffBadgeHtml = '<span class="compare-candidate-diff diff-exact">✓ Monto Exacto</span>';
+          diffBadgeHtml = '<span class="compare-candidate-diff diff-exact">Monto Exacto</span>';
         } else {
           const sign = (inv.total || 0) > bankMonto ? '+' : '-';
           diffBadgeHtml = `<span class="compare-candidate-diff diff-near">Dif: ${sign}${formatMoney(diff)}</span>`;
@@ -2056,7 +2056,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return `
           <div class="compare-candidate-card ${isSelected ? 'selected' : ''}" data-uuid="${inv.uuid}" onclick="selectCompareInvoice('${inv.uuid}')" title="Clic para seleccionar esta factura">
             <div class="compare-radio-circle">
-              ${isSelected ? '<span style="font-size:11px; font-weight:700;">✓</span>' : ''}
+              ${isSelected ? '<span style="font-size:11px; font-weight:700;">●</span>' : ''}
             </div>
             <div class="compare-candidate-left">
               <div class="compare-candidate-vendor">${inv.emisor || 'Sin emisor'}</div>
@@ -2073,7 +2073,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${diffBadgeHtml}
               </div>
               <button type="button" class="compare-candidate-btn" onclick="event.stopPropagation(); selectCompareInvoice('${inv.uuid}')">
-                ${isSelected ? '✓ Seleccionada' : 'Seleccionar'}
+                ${isSelected ? 'Seleccionada' : 'Seleccionar'}
               </button>
             </div>
           </div>
@@ -2105,7 +2105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (compareStatus) {
-      compareStatus.innerHTML = '<span style="color:var(--info); font-weight:600;">⚡ Vinculando pago y guardando como Pagada (Manual)...</span>';
+      compareStatus.innerHTML = '<span style="color:var(--info); font-weight:600;">Vinculando pago y guardando como Pagada (Manual)...</span>';
     }
     if (btnSaveCompareLink) btnSaveCompareLink.disabled = true;
 
@@ -2219,12 +2219,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Boton Recalcular Conciliacion
+  // Boton Actualizar Conciliacion
   window.triggerRefreshReconciliation = async () => {
     const btn = document.getElementById('btn-refresh-reconciliation');
-    const icon = document.getElementById('refresh-icon');
-    if (btn) btn.disabled = true;
-    if (icon) icon.classList.add('spin-animation');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Actualizando...';
+    }
 
     try {
       const res = await fetch('/api/reconciliation/refresh', {
@@ -2236,23 +2237,26 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.success) {
         await loadData();
         if (btn) {
-          const prev = btn.innerHTML;
-          btn.innerHTML = '✓ ¡Conciliación Sincronizada!';
+          btn.textContent = 'Actualizado';
           setTimeout(() => {
-            btn.innerHTML = prev;
+            btn.textContent = 'Actualizar';
             btn.disabled = false;
-          }, 2000);
+          }, 1800);
         }
       } else {
-        alert(data.message || 'Error al recalcular la conciliación.');
-        if (btn) btn.disabled = false;
+        alert(data.message || 'Error al actualizar la conciliación.');
+        if (btn) {
+          btn.textContent = 'Actualizar';
+          btn.disabled = false;
+        }
       }
     } catch (err) {
       console.error('Error refrescando:', err);
-      alert('Error de conexión al recalcular la conciliación.');
-      if (btn) btn.disabled = false;
-    } finally {
-      if (icon) icon.classList.remove('spin-animation');
+      alert('Error de conexión al actualizar.');
+      if (btn) {
+        btn.textContent = 'Actualizar';
+        btn.disabled = false;
+      }
     }
   };
 
