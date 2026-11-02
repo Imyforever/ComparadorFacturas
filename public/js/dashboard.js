@@ -387,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (statSmallAmount && statSmallCount) {
       statSmallAmount.textContent = formatMoney(summary.montoMenores50);
-      statSmallCount.textContent = `${summary.menores50Count || 0} menores a $50`;
+      statSmallCount.textContent = `${summary.menores50Count || 0} menores a $100`;
     }
 
     statPaidAmount.textContent = formatMoney(summary.montoPagado);
@@ -477,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const map = new Map();
 
     for (const inv of cachedInvoices) {
-      if (Number(inv.total || 0) < 50) continue;
+      if (Number(inv.total || 0) < 100) continue;
       let key = '';
       let secondary = '';
 
@@ -781,7 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Filtrar facturas (excluyendo menores a $50 de las tablas)
     const filtered = cachedInvoices.filter((inv) => {
       const invTotal = Number(inv.total || 0);
-      if (invTotal < 50) return false;
+      if (invTotal < 100) return false;
 
       if (currentFilter === 'pagadas' && inv.estadoPago !== 'Pagada') return false;
       if (currentFilter === 'no_pagadas' && inv.estadoPago !== 'No Pagada') return false;
@@ -1800,7 +1800,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const mvMonto = Number(m.monto || 0);
       // Excluir cargos menores a 50 pesos de la tabla de movimientos sin factura
-      if (mvMonto < 50) return false;
+      if (mvMonto < 100) return false;
       if (hasMinBank && mvMonto < minBankVal) return false;
       if (hasMaxBank && mvMonto > maxBankVal) return false;
 

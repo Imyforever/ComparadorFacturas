@@ -117,6 +117,7 @@ const reconcile = (invoices, bankTransactions) => {
       // Coincidencia unica por monto
       bestMatchIndex = candidateIdxs[0];
     } else if (candidateIdxs.length > 1) {
+      candidateIdxs.sort((a, b) => Math.abs(withdrawals[a].monto - inv.total) - Math.abs(withdrawals[b].monto - inv.total));
       // Si hay varios retiros con el mismo monto, desempatar por RFC o nombre
       const normRfc = normalizeText(inv.rfcEmisor);
       for (const idx of candidateIdxs) {

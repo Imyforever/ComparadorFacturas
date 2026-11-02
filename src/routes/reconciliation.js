@@ -6,8 +6,7 @@ const Invoice = require('../models/Invoice');
 const BankMovement = require('../models/BankMovement');
 const BankStatementFile = require('../models/BankStatementFile');
 const AccountTab = require('../models/AccountTab');
-const { parseCfdiReport } = require('../services/cfdiParser');
-const { parseBankStatement } = require('../services/bankParser');
+const { parseCfdiReport, parseBankStatement, classifyBBVAMovementIsRetiro } = require('../services/fileFormats');
 const { reconcile } = require('../services/reconciler');
 
 const router = express.Router();
@@ -49,23 +48,67 @@ const ensureDefaultTabs = async (periodo) => {
  * Helper para re-ejecutar conciliacion de un mes y entidad en MongoDB Atlas
  */
 const runReconciliationForPeriod = async (periodo, entidad = 'Personal') => {
+  // 0. Verificar y corregir si algún movimiento BBVA fue clasificado erróneamente antes de conciliar
+  const bbvaMovsInScope = await BankMovement.find({
+    entidad,
+    banco: /^BBVA$/i,
+    $or: [{ periodo }, { archivoPeriodo: periodo }]
+  }).lean();
+
+  if (bbvaMovsInScope.length > 0) {
+    const fixOps = [];
+    for (const m of bbvaMovsInScope) {
+      const expectedTipo = classifyBBVAMovementIsRetiro(m.concepto) ? 'Retiro' : 'Deposito';
+      if (m.tipo !== expectedTipo) {
+        fixOps.push({
+          updateOne: {
+            filter: { _id: m._id },
+            update: { $set: { tipo: expectedTipo } }
+          }
+        });
+      }
+    }
+    if (fixOps.length > 0) {
+      await BankMovement.bulkWrite(fixOps);
+      const statementFiles = await BankStatementFile.find({ periodo, entidad }).lean();
+      for (const sf of statementFiles) {
+        const fileMovs = await BankMovement.find({ archivoOrigen: sf.nombreArchivo, entidad }).lean();
+        if (fileMovs.length > 0) {
+          const retiros = fileMovs.filter((x) => x.tipo === 'Retiro');
+          const depositos = fileMovs.filter((x) => x.tipo === 'Deposito');
+          await BankStatementFile.updateOne(
+            { _id: sf._id },
+            {
+              $set: {
+                cargosCount: retiros.length,
+                abonosCount: depositos.length,
+                montoCargos: retiros.reduce((s, x) => s + (x.monto || 0), 0),
+                montoAbonos: depositos.reduce((s, x) => s + (x.monto || 0), 0)
+              }
+            }
+          );
+        }
+      }
+    }
+  }
   const invoices = await Invoice.find({ periodo, entidad }).lean();
-  const bankMovements = await BankMovement.find({
+  const bankMovements = await BankMovement.find({ entidad, tipo: 'Retiro', $or: [{ periodo }, { archivoPeriodo: periodo }] }).lean();
+  /* const unusedPrev = await BankMovement.find({
     periodo,
     entidad,
     tipo: 'Retiro'
-  }).lean();
+  }).lean(); */
 
   if (invoices.length === 0) {
     await BankMovement.updateMany(
-      { periodo, entidad, tipo: 'Retiro' },
+      { entidad, tipo: 'Retiro', $or: [{ periodo }, { archivoPeriodo: periodo }] },
       { $set: { conciliado: false, facturaUuid: null } }
     );
     return { summary: null };
   }
 
   // 1. Facturas manuales que ya tienen un movimientoId asignado
-  const manualInvoices = invoices.filter((i) => i.editadoManualmente && i.estadoPago === 'Pagada');
+  const manualInvoices = invoices.filter((i) => i.editadoManualmente && i.estadoPago !== 'No Pagada');
   const manuallyUsedMovementIds = new Set(
     manualInvoices
       .map((i) => i.pagoAsociado?.movimientoId)
@@ -77,7 +120,7 @@ const runReconciliationForPeriod = async (periodo, entidad = 'Personal') => {
   const availableMovements = bankMovements.filter((m) => !manuallyUsedMovementIds.has(String(m._id)));
 
   // 3. Facturas automaticas
-  const autoInvoices = invoices.filter((i) => !i.editadoManualmente);
+  const autoInvoices = invoices.filter((i) => !i.editadoManualmente || i.estadoPago === 'No Pagada');
 
   const { summary, reconciledInvoices } = reconcile(autoInvoices, availableMovements);
 
@@ -88,7 +131,8 @@ const runReconciliationForPeriod = async (periodo, entidad = 'Personal') => {
       update: {
         $set: {
           estadoPago: inv.estadoPago,
-          pagoAsociado: inv.pagoAsociado
+          pagoAsociado: inv.pagoAsociado,
+          ...(inv.estadoPago === 'Pagada' ? { editadoManualmente: false } : {})
         }
       }
     }
@@ -102,7 +146,7 @@ const runReconciliationForPeriod = async (periodo, entidad = 'Personal') => {
   const matchedMovementMap = new Map();
 
   for (const inv of manualInvoices) {
-    if (inv.pagoAsociado?.movimientoId) {
+    if (inv.estadoPago === 'Pagada' && inv.pagoAsociado?.movimientoId) {
       matchedMovementMap.set(String(inv.pagoAsociado.movimientoId), inv.uuid);
     }
   }
@@ -282,12 +326,17 @@ router.get('/data', async (req, res) => {
     // Consultas concurrentes en paralelo para máxima velocidad
     const [allInvoices, rawBankMovements, bankMovementsCount, bankStatements] = await Promise.all([
       Invoice.find({ periodo, entidad }).sort({ fechaEmision: 1 }).lean(),
-      BankMovement.find({
+      BankMovement.find({ entidad, tipo: 'Retiro', $or: [{ periodo }, { archivoPeriodo: periodo }] }).sort({ fechaNormalizada: -1, fecha: -1 }).lean(),
+      /* unused: BankMovement.find({
         periodo,
         entidad,
         tipo: 'Retiro'
-      }).sort({ fechaNormalizada: -1, fecha: -1 }).lean(),
-      BankMovement.countDocuments({ periodo, entidad, tipo: 'Retiro' }),
+      }).sort({ fechaNormalizada: -1, fecha: -1 }).lean(), */
+      BankMovement.countDocuments({
+        entidad,
+        tipo: 'Retiro',
+        $or: [{ periodo }, { archivoPeriodo: periodo }]
+      }),
       BankStatementFile.find({ periodo, entidad }).sort({ createdAt: -1 }).lean()
     ]);
 
@@ -334,7 +383,7 @@ router.get('/data', async (req, res) => {
       const tot = Number(inv.total || 0);
       montoTotal += tot;
 
-      if (tot < 50) {
+      if (tot < 100) {
         menores50Count++;
         montoMenores50 += tot;
       }
@@ -356,7 +405,7 @@ router.get('/data', async (req, res) => {
       }
 
       // Excluir facturas menores a 50 pesos de las tablas
-      if (tot < 50) continue;
+      if (tot < 100) continue;
 
       // Filtrado para la lista mostrada
       if (filter === 'all') {
@@ -379,7 +428,7 @@ router.get('/data', async (req, res) => {
     for (let i = 0; i < allUnmatchedBankMovements.length; i++) {
       const m = allUnmatchedBankMovements[i];
       const mvMonto = Number(m.monto || 0);
-      if (mvMonto < 50) {
+      if (mvMonto < 100) {
         unmatchedMenores50Count++;
         unmatchedMontoMenores50 += mvMonto;
         menores50Count++;
