@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Conciliacion de Facturas - Comparador</title>
-  <link rel="stylesheet" href="/css/styles.css?v=5">
+  <link rel="stylesheet" href="/css/styles.css?v=6">
 </head>
 
 <body class="dashboard-body">
@@ -100,6 +100,12 @@
           <div class="summary-title">Total Facturado</div>
           <div id="stat-total-amount" class="summary-amount">$0.00</div>
           <div id="stat-total-count" class="summary-count">0 facturas</div>
+        </div>
+
+        <div class="summary-box box-small-invoices">
+          <div class="summary-title" style="color:#6366f1;">Menores a $50</div>
+          <div id="stat-small-amount" class="summary-amount" style="color:#6366f1;">$0.00</div>
+          <div id="stat-small-count" class="summary-count">0 facturas</div>
         </div>
 
         <div class="summary-box box-paid">
@@ -539,8 +545,8 @@
               Facturas disponibles:
             </label>
             <div style="display: flex; gap: 6px;">
-              <button type="button" class="btn-action-small active" id="btn-compare-similar" onclick="filterCompareCandidates(true)">
-                Monto Similar
+              <button type="button" class="btn-action-small active" id="btn-compare-similar" onclick="filterCompareCandidates(true)" title="Facturas con diferencia de hasta +- $10 pesos">
+                Monto Similar (+- $10)
               </button>
               <button type="button" class="btn-action-small" id="btn-compare-all" onclick="filterCompareCandidates(false)">
                 Todas las Pendientes
@@ -587,6 +593,6 @@
     </div>
   </div>
 
-  <script src="/js/dashboard.js?v=6"></script>
+  <script src="/js/dashboard.js?v=8"></script>
 </body>
 </html>

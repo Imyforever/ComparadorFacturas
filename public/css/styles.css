@@ -613,6 +613,7 @@ body.login-page {
 .summary-box.box-unpaid { border-left-color: var(--error); }
 .summary-box.box-canceled { border-left-color: #8a8886; }
 .summary-box.box-total { border-left-color: var(--info); }
+.summary-box.box-small-invoices { border-left-color: #6366f1; }
 .summary-box.box-unmatched-bank {
   border-left-color: #d97706;
   cursor: pointer;

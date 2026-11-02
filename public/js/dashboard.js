@@ -53,6 +53,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const statTotalAmount = document.getElementById('stat-total-amount');
   const statTotalCount = document.getElementById('stat-total-count');
+  const statSmallAmount = document.getElementById('stat-small-amount');
+  const statSmallCount = document.getElementById('stat-small-count');
   const statPaidAmount = document.getElementById('stat-paid-amount');
   const statPaidCount = document.getElementById('stat-paid-count');
   const statUnpaidAmount = document.getElementById('stat-unpaid-amount');
@@ -382,6 +384,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!summary) return;
     statTotalAmount.textContent = formatMoney(summary.montoTotal);
     statTotalCount.textContent = `${summary.totalFacturas} facturas`;
+
+    if (statSmallAmount && statSmallCount) {
+      statSmallAmount.textContent = formatMoney(summary.montoMenores50);
+      statSmallCount.textContent = `${summary.menores50Count || 0} facturas`;
+    }
 
     statPaidAmount.textContent = formatMoney(summary.montoPagado);
     statPaidCount.textContent = `${summary.pagadasCount} pagadas`;
@@ -770,14 +777,16 @@ document.addEventListener('DOMContentLoaded', () => {
       btnClearPriceFilter.style.display = (hasMinPrice || hasMaxPrice) ? 'inline-block' : 'none';
     }
 
-    // Filtrar facturas
+    // Filtrar facturas (excluyendo menores a $50 de las tablas)
     const filtered = cachedInvoices.filter((inv) => {
+      const invTotal = Number(inv.total || 0);
+      if (invTotal < 50) return false;
+
       if (currentFilter === 'pagadas' && inv.estadoPago !== 'Pagada') return false;
       if (currentFilter === 'no_pagadas' && inv.estadoPago !== 'No Pagada') return false;
       if (currentFilter === 'egresos' && inv.efecto !== 'Egreso') return false;
       if (currentFilter === 'canceladas' && inv.estadoPago !== 'Cancelada') return false;
 
-      const invTotal = Number(inv.total || 0);
       if (hasMinPrice && invTotal < minPriceVal) return false;
       if (hasMaxPrice && invTotal > maxPriceVal) return false;
 
@@ -1990,25 +1999,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const bankMonto = Number(activeCompareMovement.monto || 0);
 
     let candidates = cachedInvoices.filter((inv) => {
-      // Excluir facturas canceladas
-      if (inv.estadoPago === 'Cancelada') return false;
+      // Excluir facturas canceladas y facturas que ya están pagadas
+      if (inv.estadoPago === 'Cancelada' || inv.estadoPago === 'Pagada') return false;
 
-      // Si el usuario escribe una busqueda, buscar en todas las facturas
+      // Si solo similar, filtrar estrictamente los que tienen diferencia de +-10 pesos
+      if (compareSimilarOnly) {
+        const diff = Math.abs((inv.total || 0) - bankMonto);
+        if (diff > 10.005) {
+          return false;
+        }
+      }
+
+      // Si el usuario escribe una busqueda, filtrar por texto (proveedor, RFC, folio, fecha o monto)
       if (term) {
         const str = `${inv.uuid} ${inv.emisor || ''} ${inv.rfcEmisor || ''} ${inv.total || ''} ${inv.fechaEmision || ''}`.toLowerCase();
         return str.includes(term);
-      }
-
-      // Si solo similar, buscar dentro del 15% o coincidencia en RFC o nombre
-      if (compareSimilarOnly) {
-        const diff = Math.abs((inv.total || 0) - bankMonto);
-        const ratio = bankMonto > 0 ? diff / bankMonto : 1;
-        const isRfcMatch = activeCompareMovement.rfcDetectado && activeCompareMovement.rfcDetectado === inv.rfcEmisor;
-        const isNameMatch = matchesQuery(inv.emisor, activeCompareMovement.concepto);
-
-        if (ratio > 0.15 && !isRfcMatch && !isNameMatch) {
-          return false;
-        }
       }
 
       return true;
@@ -2024,7 +2029,7 @@ document.addEventListener('DOMContentLoaded', () => {
       compareInvoiceRows.innerHTML = `
         <div style="text-align: center; padding: 26px 16px; color: var(--text-muted); background: #ffffff; border-radius: 4px; border: 1px dashed var(--border);">
           <div style="font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">
-            ${term ? 'No se encontraron facturas con ese criterio' : `Sin facturas con monto similar a ${formatMoney(bankMonto)}`}
+            ${term ? 'No se encontraron facturas con ese criterio' : `Sin facturas con monto similar (+- $10.00) a ${formatMoney(bankMonto)}`}
           </div>
           <div style="font-size: 11.5px; margin-bottom: 12px;">
             ${term ? `No hay coincidencias para "${term}".` : 'Puedes ver todas las facturas pendientes de este mes haciendo clic abajo:'}

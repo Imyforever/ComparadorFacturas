@@ -324,13 +324,20 @@ router.get('/data', async (req, res) => {
     let canceladasCount = 0;
     let montoCancelado = 0;
     let montoTotal = 0;
+    let menores50Count = 0;
+    let montoMenores50 = 0;
 
     const invoices = [];
 
     for (let i = 0; i < allInvoices.length; i++) {
       const inv = allInvoices[i];
-      const tot = inv.total || 0;
+      const tot = Number(inv.total || 0);
       montoTotal += tot;
+
+      if (tot < 50) {
+        menores50Count++;
+        montoMenores50 += tot;
+      }
 
       if (inv.estadoPago === 'Pagada') {
         pagadasCount++;
@@ -347,6 +354,9 @@ router.get('/data', async (req, res) => {
         egresosCount++;
         montoEgresos += tot;
       }
+
+      // Excluir facturas menores a 50 pesos de las tablas
+      if (tot < 50) continue;
 
       // Filtrado para la lista mostrada
       if (filter === 'all') {
@@ -385,6 +395,8 @@ router.get('/data', async (req, res) => {
         montoEgresos,
         canceladasCount,
         montoCancelado,
+        menores50Count,
+        montoMenores50,
         bankMovementsCount,
         unmatchedBankCount,
         unmatchedBankMonto
