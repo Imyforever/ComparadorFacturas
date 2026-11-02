@@ -625,13 +625,201 @@ const parseBBVACreditOrCardStatement = (text, defaultYear = '2026') => {
 };
 
 /**
+ * Divide una linea CSV respetando comillas dobles
+ */
+const splitCsvLine = (line) => {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+};
+
+/**
+ * Parsea un estado de cuenta en formato CSV / Excel (Scotiabank ScotiaWeb / Exportación CSV Bancaria)
+ * Columnas esperadas:
+ * Tipo,Moneda,Uso futuro,Cuenta,Fecha,Referencia,Importe,Tipo(Cargo/Abono),Saldo,Transacción,Leyenda 1,Leyenda 2,Leyenda 3,Información adicional SPEI/SPID,Consecutivo
+ */
+const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
+  const cleanText = text.replace(/^\uFEFF/, '');
+  const lines = cleanText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  let headerIndex = -1;
+  let cuentaHeader = '';
+
+  for (let i = 0; i < Math.min(lines.length, 15); i++) {
+    const cols = splitCsvLine(lines[i]);
+    if (
+      cols.some((c) => /^Tipo$/i.test(c)) &&
+      cols.some((c) => /^Importe$/i.test(c)) &&
+      cols.some((c) => /Cargo\/Abono/i.test(c))
+    ) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  // Si la primera fila antes del encabezado es el resumen de Scotiabank (ej: 502424129,25601064912,NOMBRE,MXN,...)
+  if (headerIndex > 0) {
+    const metaCols = splitCsvLine(lines[0]);
+    if (metaCols.length >= 2 && /^\d{7,20}$/.test(metaCols[1])) {
+      cuentaHeader = metaCols[1].replace(/^0+/, '');
+    }
+  }
+
+  const startRow = headerIndex !== -1 ? headerIndex + 1 : 0;
+  const movements = [];
+  const detectedPeriodsSet = new Set();
+  let cuentaDetectada = cuentaHeader;
+
+  const rfcRegex =
+    /RFC[:\s]+([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b|\b([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b/i;
+
+  for (let i = startRow; i < lines.length; i++) {
+    const cols = splitCsvLine(lines[i]);
+    if (cols.length < 8) continue;
+
+    // Estructura estandar de 15 columnas:
+    // [0] Tipo (CHQ), [1] Moneda (MXN), [2] Uso futuro, [3] Cuenta, [4] Fecha (YYYY/MM/DD),
+    // [5] Referencia, [6] Importe, [7] Tipo(Cargo/Abono), [8] Saldo, [9] Transacción,
+    // [10] Leyenda 1, [11] Leyenda 2, [12] Leyenda 3, [13] Información adicional SPEI/SPID, [14] Consecutivo
+    const rawCuenta = (cols[3] || '').replace(/^0+/, '');
+    const rawFecha = cols[4] || '';
+    const rawReferencia = (cols[5] || '').replace(/^0+/, '') || cols[5] || '';
+    const rawImporte = parseFloat((cols[6] || '0').replace(/,/g, ''));
+    const rawTipoMov = cols[7] || '';
+    const rawSaldo = parseFloat((cols[8] || '0').replace(/,/g, ''));
+    const transaccion = cols[9] || '';
+    const leyenda1 = cols[10] || '';
+    const leyenda2 = cols[11] || '';
+    const leyenda3 = cols[12] || '';
+    const infoSpei = cols[13] || '';
+
+    if (isNaN(rawImporte) || rawImporte <= 0) continue;
+
+    if (!cuentaDetectada && rawCuenta) {
+      cuentaDetectada = rawCuenta;
+    }
+
+    // Parsear fecha (ej: "2026/10/28", "2026-10-28" o "28/10/2026")
+    let year = defaultYear;
+    let monthNum = '09';
+    let day = '01';
+
+    const ymdMatch = rawFecha.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
+    const dmyMatch = rawFecha.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+
+    if (ymdMatch) {
+      year = ymdMatch[1];
+      monthNum = ymdMatch[2];
+      day = ymdMatch[3];
+    } else if (dmyMatch) {
+      day = dmyMatch[1];
+      monthNum = dmyMatch[2];
+      year = dmyMatch[3];
+    } else {
+      continue;
+    }
+
+    const monthStr = NUM_TO_MONTH_MAP[monthNum] || 'SEP';
+    const periodo = `${year}-${monthNum}`;
+    detectedPeriodsSet.add(periodo);
+
+    const isCargo = /cargo|retiro/i.test(rawTipoMov);
+
+    // Construir concepto completo uniendo Transacción y Leyendas
+    const conceptParts = [transaccion, leyenda1, leyenda2, leyenda3, infoSpei]
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const fullConcept = conceptParts.join(' | ');
+
+    // Detectar RFC en Leyenda 2, Leyenda 3 o el concepto completo
+    let rfc = null;
+    const rfcMatch = fullConcept.match(rfcRegex);
+    if (rfcMatch) {
+      if (rfcMatch[1] && rfcMatch[2] && rfcMatch[3]) {
+        rfc = `${rfcMatch[1]}${rfcMatch[2]}${rfcMatch[3]}`.toUpperCase();
+      } else if (rfcMatch[4] && rfcMatch[5] && rfcMatch[6]) {
+        rfc = `${rfcMatch[4]}${rfcMatch[5]}${rfcMatch[6]}`.toUpperCase();
+      }
+    }
+
+    movements.push({
+      banco: 'Scotiabank (CSV/Excel)',
+      cuenta: cuentaDetectada || rawCuenta,
+      periodo,
+      fecha: `${day}-${monthStr}-${year}`,
+      fechaNormalizada: new Date(Number(year), Number(monthNum) - 1, Number(day)),
+      tipo: isCargo ? 'Retiro' : 'Deposito',
+      monto: rawImporte,
+      saldo: isNaN(rawSaldo) ? 0 : rawSaldo,
+      rfcDetectado: rfc,
+      concepto: (fullConcept || 'Movimiento bancario').substring(0, 250),
+      origenReferencia: rawReferencia,
+      conciliado: false
+    });
+  }
+
+  return {
+    banco: 'Scotiabank (CSV/Excel)',
+    cuenta: cuentaDetectada ? `Cuenta ${cuentaDetectada}` : 'Scotiabank',
+    movements,
+    detectedPeriods: Array.from(detectedPeriodsSet).sort()
+  };
+};
+
+/**
  * Parsea un estado de cuenta bancario detectando automaticamente la institucion bancaria y formato
- * @param {Buffer} pdfBuffer - Buffer del archivo PDF
+ * @param {Buffer} fileBuffer - Buffer del archivo (PDF, CSV, TXT)
  * @param {string} defaultYear - Anio default (ej: "2026")
+ * @param {string} originalName - Nombre original del archivo subido
  * @returns {Promise<{movements: Array<Object>, detectedPeriods: Array<string>, banco?: string, cuenta?: string}>}
  */
-const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
-  const text = await extractPdfText(pdfBuffer);
+const parseBankStatement = async (fileBuffer, defaultYear = '2026', originalName = '') => {
+  const isPdfBuffer = fileBuffer && fileBuffer.length >= 4 && fileBuffer.slice(0, 4).toString('utf8') === '%PDF';
+  const isCsvOrTxtName = /\.(csv|txt|tsv|xls|xlsx)$/i.test(originalName);
+
+  if (!isPdfBuffer || isCsvOrTxtName) {
+    const rawText = fileBuffer.toString('utf8');
+    if (
+      /Tipo\s*,\s*Moneda\s*,\s*Uso\s+futuro/i.test(rawText) ||
+      /Tipo\(Cargo\/Abono\)/i.test(rawText) ||
+      /^CHQ\s*,\s*MXN\s*,/im.test(rawText)
+    ) {
+      return parseCsvOrExcelBankStatement(rawText, defaultYear);
+    }
+  }
+
+  const text = await extractPdfText(fileBuffer);
+
+  // Si un PDF o archivo contiene texto con estructura CSV de Scotiabank
+  if (
+    /Tipo\s*,\s*Moneda\s*,\s*Uso\s+futuro/i.test(text) ||
+    /Tipo\(Cargo\/Abono\)/i.test(text) ||
+    /^CHQ\s*,\s*MXN\s*,/im.test(text)
+  ) {
+    return parseCsvOrExcelBankStatement(text, defaultYear);
+  }
 
   // 1. Deteccion de BBVA Detalle de Movimientos (Portal Web / Cash Management)
   const isBBVADetalle =
@@ -679,6 +867,7 @@ const parseBankStatement = async (pdfBuffer, defaultYear = '2026') => {
 
 module.exports = {
   parseBankStatement,
+  parseCsvOrExcelBankStatement,
   parseBBVACreditOrCardStatement,
   parseBBVAStatement,
   parseBBVADetalleMovimientos,

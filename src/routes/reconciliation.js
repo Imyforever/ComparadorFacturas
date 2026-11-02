@@ -306,7 +306,7 @@ router.get('/data', async (req, res) => {
     );
 
     // Filtrar estrictamente: NINGÚN movimiento que pertenezca a una factura pagada debe aparecer en la tabla de sin factura
-    const unmatchedBankMovements = rawBankMovements.filter((m) => {
+    const allUnmatchedBankMovements = rawBankMovements.filter((m) => {
       // 1. Si su ID está asignado como pago de una factura pagada, EXCLUIR
       if (paidMovementIdSet.has(String(m._id))) return false;
       // 2. Si tiene facturaUuid y esa factura está pagada, EXCLUIR
@@ -372,6 +372,23 @@ router.get('/data', async (req, res) => {
       }
     }
 
+    let unmatchedMenores50Count = 0;
+    let unmatchedMontoMenores50 = 0;
+    const unmatchedBankMovements = [];
+
+    for (let i = 0; i < allUnmatchedBankMovements.length; i++) {
+      const m = allUnmatchedBankMovements[i];
+      const mvMonto = Number(m.monto || 0);
+      if (mvMonto < 50) {
+        unmatchedMenores50Count++;
+        unmatchedMontoMenores50 += mvMonto;
+        menores50Count++;
+        montoMenores50 += mvMonto;
+        continue;
+      }
+      unmatchedBankMovements.push(m);
+    }
+
     const totalFacturas = allInvoices.length;
     const unmatchedBankCount = unmatchedBankMovements.length;
     let unmatchedBankMonto = 0;
@@ -397,6 +414,8 @@ router.get('/data', async (req, res) => {
         montoCancelado,
         menores50Count,
         montoMenores50,
+        unmatchedMenores50Count,
+        unmatchedMontoMenores50,
         bankMovementsCount,
         unmatchedBankCount,
         unmatchedBankMonto
@@ -987,7 +1006,8 @@ router.post('/upload-bank', upload.array('bankPdfs', 20), async (req, res) => {
     for (const file of req.files) {
       const { movements, detectedPeriods, banco, cuenta } = await parseBankStatement(
         file.buffer,
-        targetPeriodo.split('-')[0] || '2026'
+        targetPeriodo.split('-')[0] || '2026',
+        file.originalname || ''
       );
 
       if (!detectedPeriods.includes(targetPeriodo)) {

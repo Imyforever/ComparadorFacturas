@@ -387,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (statSmallAmount && statSmallCount) {
       statSmallAmount.textContent = formatMoney(summary.montoMenores50);
-      statSmallCount.textContent = `${summary.menores50Count || 0} facturas`;
+      statSmallCount.textContent = `${summary.menores50Count || 0} menores a $50`;
     }
 
     statPaidAmount.textContent = formatMoney(summary.montoPagado);
@@ -477,6 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const map = new Map();
 
     for (const inv of cachedInvoices) {
+      if (Number(inv.total || 0) < 50) continue;
       let key = '';
       let secondary = '';
 
@@ -1798,6 +1799,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (paidMovementIds.has(String(m._id))) return false;
 
       const mvMonto = Number(m.monto || 0);
+      // Excluir cargos menores a 50 pesos de la tabla de movimientos sin factura
+      if (mvMonto < 50) return false;
       if (hasMinBank && mvMonto < minBankVal) return false;
       if (hasMaxBank && mvMonto > maxBankVal) return false;
 
