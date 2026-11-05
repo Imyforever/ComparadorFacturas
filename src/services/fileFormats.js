@@ -24,6 +24,22 @@
  */
 
 const { extractPdfText } = require('./pdfText');
+const { parseFlexibleDate, resolveYearForMonth } = require('./dates');
+
+/** Convierte un importe textual ("1,234.56", "$ 1,234.56", "-50.00") a numero; NaN si no es valido */
+const parseAmount = (raw) => {
+  if (raw === undefined || raw === null) return NaN;
+  const cleaned = String(raw).replace(/[$\s,]/g, '');
+  if (!cleaned) return NaN;
+  return parseFloat(cleaned);
+};
+
+/** Error de formato de archivo: las rutas lo responden como 400 (problema del archivo, no del servidor) */
+const formatError = (message) => {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+};
 
 // ============================================================================
 // CATÁLOGOS Y CONSTANTES COMPARTIDAS ENTRE FORMATOS
@@ -109,7 +125,7 @@ const classifyBBVAMovementIsRetiro = (concepto, codeParam = '') => {
 /**
  * Helper para dividir una línea CSV respetando comillas dobles
  */
-const splitCsvLine = (line) => {
+const splitCsvLine = (line, delimiter = ',') => {
   const result = [];
   let current = '';
   let inQuotes = false;
@@ -123,7 +139,7 @@ const splitCsvLine = (line) => {
       } else {
         inQuotes = !inQuotes;
       }
-    } else if (ch === ',' && !inQuotes) {
+    } else if (ch === delimiter && !inQuotes) {
       result.push(current.trim());
       current = '';
     } else {
@@ -145,6 +161,10 @@ const splitCsvLine = (line) => {
  * - Toma los primeros 7 caracteres de Fecha Emisión (YYYY-MM) para determinar el mes.
  */
 const parseCfdiReport = async (pdfBuffer) => {
+  if (!pdfBuffer || pdfBuffer.length < 4 || pdfBuffer.slice(0, 4).toString('latin1') !== '%PDF') {
+    throw formatError('El archivo de facturas debe ser el PDF del reporte de Consulta CFDI del SAT.');
+  }
+
   const text = await extractPdfText(pdfBuffer);
 
   const blocks = text.split(/Folio Fiscal:\s*/i).filter((b) => b.trim().length > 0);
@@ -166,7 +186,8 @@ const parseCfdiReport = async (pdfBuffer) => {
     const fechaEmisionMatch = block.match(/Fecha Emisión:\s*(\S+)/i);
     const fechaCertMatch = block.match(/Fecha Certificación:\s*(\S+)/i);
 
-    const totalMatch = block.match(/Total:\s*\$?([0-9,]+(?:\.[0-9]{2})?)/i);
+    // (?<![A-Za-z]) evita confundir "SubTotal:" con "Total:"
+    const totalMatch = block.match(/(?<![A-Za-z])Total:\s*\$?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
     const pacMatch = block.match(/PAC que Certificó:\s*([^\n\r\t]+)/i);
 
     const estadoMatch = block.match(/Estado del Comprobante:\s*([^\n\r]+?)(?=\s*Efecto|\s*$)/i);
@@ -188,6 +209,7 @@ const parseCfdiReport = async (pdfBuffer) => {
     if (/egreso/i.test(rawEfecto)) efectoNormalizado = 'Egreso';
     else if (/pago/i.test(rawEfecto)) efectoNormalizado = 'Pago';
     else if (/n[oó]mina/i.test(rawEfecto)) efectoNormalizado = 'Nomina';
+    else if (/traslado/i.test(rawEfecto)) efectoNormalizado = 'Traslado';
 
     invoices.push({
       uuid,
@@ -216,9 +238,11 @@ const parseCfdiReport = async (pdfBuffer) => {
     }
   }
 
+  // Si el documento no trae fechas reconocibles se devuelve '' para que la ruta no rechace el archivo
+  // comparandolo contra un mes inventado.
   return {
     invoices,
-    detectedPeriod: detectedPeriod || '2026-09'
+    detectedPeriod
   };
 };
 
@@ -236,12 +260,19 @@ const parseCfdiReport = async (pdfBuffer) => {
  */
 const parseBBVAStatement = (text, defaultYear = '2026') => {
   let detectedYear = defaultYear;
+  let refMonth = 0;
+  let refKind = 'end';
   const corteMatch = text.match(/Fecha\s+de\s+Corte\s+\d{2}\/(\d{2})\/(\d{4})/i);
   if (corteMatch) {
     detectedYear = corteMatch[2];
+    refMonth = Number(corteMatch[1]);
   } else {
-    const periodoMatch = text.match(/Periodo\s+DEL\s+\d{2}\/\d{2}\/(\d{4})/i);
-    if (periodoMatch) detectedYear = periodoMatch[1];
+    const periodoMatch = text.match(/Periodo\s+DEL\s+\d{2}\/(\d{2})\/(\d{4})/i);
+    if (periodoMatch) {
+      detectedYear = periodoMatch[2];
+      refMonth = Number(periodoMatch[1]);
+      refKind = 'start';
+    }
   }
 
   const cuentaMatch = text.match(/No\.\s+de\s+Cuenta\s+(\d+)/i);
@@ -276,12 +307,14 @@ const parseBBVAStatement = (text, defaultYear = '2026') => {
       const amount = parseFloat(match[6].replace(/,/g, ''));
       const saldo = match[7] ? parseFloat(match[7].replace(/,/g, '')) : 0;
       const monthNum = MONTH_MAP[monthStr] || '09';
+      // Estados de cuenta de diciembre-enero: los movimientos de diciembre pertenecen al anio anterior
+      const txYear = resolveYearForMonth(detectedYear, refMonth, Number(monthNum), refKind);
 
       currentTx = {
         banco: 'BBVA',
         cuenta,
-        periodo: `${detectedYear}-${monthNum}`,
-        fecha: `${day}-${monthStr}-${detectedYear}`,
+        periodo: `${txYear}-${monthNum}`,
+        fecha: `${day}-${monthStr}-${txYear}`,
         code,
         desc,
         amount,
@@ -420,8 +453,11 @@ const parseBBVADetalleMovimientos = (text, defaultYear = '2026') => {
         );
         if (nextAmounts.length >= 2) {
           const prevSaldo = nextAmounts[nextAmounts.length - 1];
-          if (saldo < prevSaldo) isCargo = true;
-          else isCargo = false;
+          if (Math.abs(prevSaldo - amount - saldo) < 0.02) isCargo = true;
+          else if (Math.abs(prevSaldo + amount - saldo) < 0.02) isCargo = false;
+          else isCargo = saldo < prevSaldo;
+        } else {
+          isCargo = classifyBBVAMovementIsRetiro(fullConcept);
         }
       } else {
         isCargo = /^(?:IVA|APLI\s+TASA|SICONT|SPEI\s+ENVIADO|IMSS|PAGO\s+SUA|COM\.|FULLGAS)/i.test(fullConcept);
@@ -663,9 +699,11 @@ const parseBBVACreditOrCardStatement = (text, defaultYear = '2026') => {
  */
 const parseScotiabankStatement = (text, defaultYear = '2026') => {
   let detectedYear = defaultYear;
-  const yearMatch = text.match(/Periodo\s+\d{2}-[A-Z]{3}-(\d{2})/i);
+  let startMonth = 0;
+  const yearMatch = text.match(/Periodo\s+\d{2}-([A-Z]{3})-(\d{2})/i);
   if (yearMatch) {
-    detectedYear = '20' + yearMatch[1];
+    detectedYear = '20' + yearMatch[2];
+    startMonth = Number(MONTH_MAP[yearMatch[1].toUpperCase()] || 0);
   }
 
   const cuentaMatch = text.match(/Cuenta\s+(\d+)/i);
@@ -681,7 +719,11 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
 
   const transactions = [];
   const detectedPeriodsSet = new Set();
-  let prevSaldo = 0;
+
+  // Saldo inicial del periodo (si el documento lo trae) para clasificar correctamente el primer movimiento
+  const saldoInicialMatch = text.match(/Saldo\s+(?:inicial|anterior)[^$\n]*\$\s*([0-9,]+\.[0-9]{2})/i);
+  let prevSaldo = saldoInicialMatch ? parseAmount(saldoInicialMatch[1]) : null;
+  if (!Number.isFinite(prevSaldo)) prevSaldo = null;
 
   for (const block of blocks) {
     const headerLine = block.trim().split('\n')[0];
@@ -691,8 +733,8 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
     const day = dateMatch[1];
     const monthStr = dateMatch[2].toUpperCase();
     const monthNum = MONTH_MAP[monthStr] || '09';
-    const periodo = `${detectedYear}-${monthNum}`;
-    detectedPeriodsSet.add(periodo);
+    const txYear = resolveYearForMonth(detectedYear, startMonth, Number(monthNum), 'start');
+    const periodo = `${txYear}-${monthNum}`;
 
     const amountMatches = [...block.matchAll(/\$([0-9,]+\.[0-9]{2})/g)].map((m) =>
       parseFloat(m[1].replace(/,/g, ''))
@@ -703,8 +745,10 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
     const amount = amountMatches[0];
     const saldo = amountMatches[amountMatches.length - 1];
 
+    detectedPeriodsSet.add(periodo);
+
     let isRetiro = true;
-    if (prevSaldo > 0) {
+    if (prevSaldo !== null) {
       if (Math.abs(prevSaldo + amount - saldo) < 0.2) {
         isRetiro = false;
       } else if (Math.abs(prevSaldo - amount - saldo) < 0.2) {
@@ -729,7 +773,7 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
       banco: 'Scotiabank',
       cuenta,
       periodo,
-      fecha: `${day}-${monthStr}-${detectedYear}`,
+      fecha: `${day}-${monthStr}-${txYear}`,
       tipo: isRetiro ? 'Retiro' : 'Deposito',
       monto: amount,
       saldo,
@@ -873,8 +917,15 @@ const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
   let headerIndex = -1;
   let cuentaHeader = '';
 
+  // Detectar separador (coma, punto y coma o tabulador) segun las primeras lineas
+  const sample = lines.slice(0, 15).join('\n');
+  const delimiterCounts = [',', ';', '\t'].map((d) => ({ d, n: sample.split(d).length - 1 }));
+  delimiterCounts.sort((a, b) => b.n - a.n);
+  const delimiter = delimiterCounts[0].n > 0 ? delimiterCounts[0].d : ',';
+  const splitLine = (line) => splitCsvLine(line, delimiter);
+
   for (let i = 0; i < Math.min(lines.length, 15); i++) {
-    const cols = splitCsvLine(lines[i]);
+    const cols = splitLine(lines[i]);
     if (
       cols.some((c) => /^Tipo$/i.test(c)) &&
       cols.some((c) => /^Importe$/i.test(c)) &&
@@ -887,7 +938,7 @@ const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
 
   // Si la primera fila antes del encabezado es el resumen de Scotiabank (ej: 502424129,25601064912,NOMBRE,MXN,...)
   if (headerIndex > 0) {
-    const metaCols = splitCsvLine(lines[0]);
+    const metaCols = splitLine(lines[0]);
     if (metaCols.length >= 2 && /^\d{7,20}$/.test(metaCols[1])) {
       cuentaHeader = metaCols[1].replace(/^0+/, '');
     }
@@ -902,15 +953,15 @@ const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
     /RFC[:\s]+([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b|\b([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b/i;
 
   for (let i = startRow; i < lines.length; i++) {
-    const cols = splitCsvLine(lines[i]);
+    const cols = splitLine(lines[i]);
     if (cols.length < 8) continue;
 
     const rawCuenta = (cols[3] || '').replace(/^0+/, '');
-    const rawFecha = cols[4] || '';
+    const rawFecha = (cols[4] || '').trim();
     const rawReferencia = (cols[5] || '').replace(/^0+/, '') || cols[5] || '';
-    const rawImporte = parseFloat((cols[6] || '0').replace(/,/g, ''));
+    const rawImporte = Math.abs(parseAmount(cols[6]));
     const rawTipoMov = cols[7] || '';
-    const rawSaldo = parseFloat((cols[8] || '0').replace(/,/g, ''));
+    const rawSaldo = parseAmount(cols[8]);
     const transaccion = cols[9] || '';
     const leyenda1 = cols[10] || '';
     const leyenda2 = cols[11] || '';
@@ -928,16 +979,17 @@ const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
     let monthNum = '09';
     let day = '01';
 
-    const ymdMatch = rawFecha.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
-    const dmyMatch = rawFecha.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+    // Acepta tambien dia/mes de un digito y hora al final (ej. "2026/10/28 00:00:00")
+    const ymdMatch = rawFecha.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s.*)?$/);
+    const dmyMatch = rawFecha.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s.*)?$/);
 
     if (ymdMatch) {
       year = ymdMatch[1];
-      monthNum = ymdMatch[2];
-      day = ymdMatch[3];
+      monthNum = ymdMatch[2].padStart(2, '0');
+      day = ymdMatch[3].padStart(2, '0');
     } else if (dmyMatch) {
-      day = dmyMatch[1];
-      monthNum = dmyMatch[2];
+      day = dmyMatch[1].padStart(2, '0');
+      monthNum = dmyMatch[2].padStart(2, '0');
       year = dmyMatch[3];
     } else {
       continue;
@@ -995,29 +1047,80 @@ const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
  * Detecta automáticamente a qué formato bancario pertenece el archivo subido
  * y ejecuta su lector correspondiente.
  */
+const looksLikeScotiaCsv = (text) =>
+  /Tipo\s*[,;\t]\s*Moneda\s*[,;\t]\s*Uso\s+futuro/i.test(text) ||
+  /Tipo\s*\(\s*Cargo\s*\/\s*Abono\s*\)/i.test(text) ||
+  /^"?CHQ"?\s*[,;\t]\s*"?MXN"?\s*[,;\t]/im.test(text);
+
+/** Decodifica texto plano probando UTF-8 y, si hay caracteres invalidos, Latin-1 (Excel en Windows) */
+const decodeTextBuffer = (buffer) => {
+  const utf8 = buffer.toString('utf8');
+  if (!utf8.includes('�')) return utf8;
+  return buffer.toString('latin1');
+};
+
+/**
+ * Completa campos derivados comunes a todos los formatos:
+ * - fechaNormalizada (Date) para ordenar correctamente por fecha
+ * - monto redondeado a centavos
+ */
+const finalizeStatement = (result) => {
+  const movements = (result.movements || [])
+    .filter((m) => m && Number.isFinite(m.monto) && m.monto > 0)
+    .map((m) => {
+      const fechaNormalizada =
+        m.fechaNormalizada instanceof Date && !isNaN(m.fechaNormalizada.getTime())
+          ? m.fechaNormalizada
+          : parseFlexibleDate(m.fecha);
+      return {
+        ...m,
+        monto: Math.round(m.monto * 100) / 100,
+        ...(fechaNormalizada ? { fechaNormalizada } : {})
+      };
+    });
+
+  return { ...result, movements, detectedPeriods: Array.from(new Set(result.detectedPeriods || [])).sort() };
+};
+
 const parseBankStatement = async (fileBuffer, defaultYear = '2026', originalName = '') => {
-  const isPdfBuffer = fileBuffer && fileBuffer.length >= 4 && fileBuffer.slice(0, 4).toString('utf8') === '%PDF';
-  const isCsvOrTxtName = /\.(csv|txt|tsv|xls|xlsx)$/i.test(originalName);
+  if (!fileBuffer || fileBuffer.length === 0) {
+    throw formatError(`El archivo "${originalName || 'sin nombre'}" esta vacio.`);
+  }
+  return finalizeStatement(await detectAndParseBankStatement(fileBuffer, String(defaultYear), originalName));
+};
+
+const detectAndParseBankStatement = async (fileBuffer, defaultYear, originalName) => {
+  const header = fileBuffer.slice(0, 8);
+  const isPdfBuffer = header.slice(0, 4).toString('latin1') === '%PDF';
+  const isXlsx = header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04; // ZIP (PK..)
+  const isXlsBinary = header.toString('hex') === 'd0cf11e0a1b11ae1'; // OLE2 (Excel 97-2003)
+
+  if (!isPdfBuffer && (isXlsx || isXlsBinary)) {
+    throw formatError(
+      `El archivo "${originalName}" es un libro de Excel binario. Abralo en Excel y guardelo como "CSV (delimitado por comas)" para poder leerlo.`
+    );
+  }
 
   // 1. Detección de Formato Tipo Excel / CSV (Scotiabank ScotiaWeb)
-  if (!isPdfBuffer || isCsvOrTxtName) {
-    const rawText = fileBuffer.toString('utf8');
-    if (
-      /Tipo\s*,\s*Moneda\s*,\s*Uso\s+futuro/i.test(rawText) ||
-      /Tipo\(Cargo\/Abono\)/i.test(rawText) ||
-      /^CHQ\s*,\s*MXN\s*,/im.test(rawText)
-    ) {
+  if (!isPdfBuffer) {
+    const rawText = decodeTextBuffer(fileBuffer);
+    if (looksLikeScotiaCsv(rawText)) {
       return parseCsvOrExcelBankStatement(rawText, defaultYear);
     }
+    throw formatError(
+      `No se reconocio el formato del archivo "${originalName}". Se aceptan estados de cuenta en PDF (BBVA, Scotiabank) o CSV de ScotiaWeb.`
+    );
   }
 
   const text = await extractPdfText(fileBuffer);
 
-  if (
-    /Tipo\s*,\s*Moneda\s*,\s*Uso\s+futuro/i.test(text) ||
-    /Tipo\(Cargo\/Abono\)/i.test(text) ||
-    /^CHQ\s*,\s*MXN\s*,/im.test(text)
-  ) {
+  if (!text || text.trim().length < 20) {
+    throw formatError(
+      `No se pudo extraer texto del PDF "${originalName}". Puede ser un documento escaneado (imagen) o protegido con contrasena.`
+    );
+  }
+
+  if (looksLikeScotiaCsv(text)) {
     return parseCsvOrExcelBankStatement(text, defaultYear);
   }
 

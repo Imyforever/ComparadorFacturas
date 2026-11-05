@@ -10,46 +10,28 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB límite
+  defParamCharset: 'utf8',
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
       cb(null, true);
     } else {
-      cb(new Error('Solo se permiten archivos en formato PDF.'), false);
+      const err = new Error('Solo se permiten archivos en formato PDF.');
+      err.status = 400;
+      cb(err, false);
     }
   }
 });
 
 // Respaldo en memoria si aún no se conecta MongoDB Atlas
-let memoryInvoices = [
-  {
-    _id: 'inv_demo_1',
-    folio: 'FAC-2026-001',
-    emisor: 'Servicios de Consultoría Integral SA',
-    rfcEmisor: 'SCI980112XX1',
-    total: 14500.0,
-    fecha: '2026-10-20',
-    estado: 'Conciliada',
-    pdfUrl: '#',
-    storage: 'local'
-  },
-  {
-    _id: 'inv_demo_2',
-    folio: 'FAC-2026-002',
-    emisor: 'Papelería Corporativa Nacional',
-    rfcEmisor: 'PCN050414AB2',
-    total: 3820.5,
-    fecha: '2026-10-21',
-    estado: 'Conciliada',
-    pdfUrl: '#',
-    storage: 'local'
-  }
-];
+const memoryInvoices = [];
+
+const isDbConnected = () => mongoose.connection.readyState === 1;
 
 // 1. Obtener todas las facturas
 router.get('/', async (req, res) => {
   try {
-    if (mongoose.connection.readyState === 1) {
-      const invoices = await Invoice.find().sort({ createdAt: -1 });
+    if (isDbConnected()) {
+      const invoices = await Invoice.find().sort({ createdAt: -1 }).lean();
       return res.json({ success: true, count: invoices.length, data: invoices });
     }
     return res.json({ success: true, count: memoryInvoices.length, data: memoryInvoices });
@@ -60,56 +42,60 @@ router.get('/', async (req, res) => {
 });
 
 // 2. Subir PDF y registrar factura (Cloudflare R2 + MongoDB)
+// Antes se inventaban folio, RFC y total aleatorios cuando no se enviaban y el documento no cumplia
+// el esquema de Invoice (por lo que fallaba al guardar). Ahora se exigen los datos reales.
 router.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Debe adjuntar un archivo PDF.' });
     }
 
+    const uuid = String(req.body.uuid || req.body.folio || '').trim().toUpperCase();
+    const emisor = String(req.body.emisor || '').trim();
+    const rfcEmisor = String(req.body.rfcEmisor || '').trim().toUpperCase();
+    const total = Number(req.body.total);
+    const fechaEmision = String(req.body.fechaEmision || req.body.fecha || '').trim();
+
+    const missing = [];
+    if (!uuid) missing.push('uuid');
+    if (!emisor) missing.push('emisor');
+    if (!rfcEmisor) missing.push('rfcEmisor');
+    if (!Number.isFinite(total)) missing.push('total');
+    if (!/^\d{4}-\d{2}-\d{2}/.test(fechaEmision)) missing.push('fechaEmision (AAAA-MM-DD)');
+    if (missing.length > 0) {
+      return res.status(400).json({ success: false, message: `Faltan o son invalidos los campos: ${missing.join(', ')}.` });
+    }
+
     // 1. Subir a Cloudflare R2 (o almacenamiento local de respaldo)
     const uploadResult = await uploadPdf(req.file);
 
-    // 2. Extraer o generar datos de la factura
-    const folio = req.body.folio || `FAC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const emisor = req.body.emisor || 'Proveedor Comercial SA de CV';
-    const rfcEmisor = req.body.rfcEmisor || 'PRO010101XYZ';
-    const total = parseFloat(req.body.total) || Math.floor(1500 + Math.random() * 25000);
-    const fecha = req.body.fecha || new Date().toISOString().split('T')[0];
+    const data = {
+      uuid,
+      periodo: req.body.periodo || fechaEmision.substring(0, 7),
+      entidad: req.body.entidad || 'Personal',
+      emisor,
+      rfcEmisor,
+      total,
+      fechaEmision,
+      observaciones: `PDF: ${uploadResult.url}`
+    };
 
-    // 3. Guardar en MongoDB Atlas
-    if (mongoose.connection.readyState === 1) {
-      const newInvoice = new Invoice({
-        folio,
-        emisor,
-        rfcEmisor,
-        total,
-        fecha,
-        estado: 'Conciliada',
-        pdfUrl: uploadResult.url,
-        pdfKey: uploadResult.key,
-        storage: uploadResult.storage
-      });
-
-      const saved = await newInvoice.save();
+    // 2. Guardar en MongoDB Atlas
+    if (isDbConnected()) {
+      const existing = await Invoice.findOne({ uuid }).lean();
+      if (existing) {
+        return res.status(409).json({ success: false, message: `Ya existe una factura con el UUID ${uuid}.` });
+      }
+      const saved = await Invoice.create(data);
       return res.status(201).json({
         success: true,
-        message: `Factura ${folio} procesada y guardada exitosamente en ${uploadResult.storage.toUpperCase()}.`,
+        message: `Factura ${uuid} procesada y guardada exitosamente en ${uploadResult.storage.toUpperCase()}.`,
         invoice: saved
       });
     }
 
     // Fallback en memoria si MongoDB aún no tiene conexión
-    const memItem = {
-      _id: `inv_${Date.now()}`,
-      folio,
-      emisor,
-      rfcEmisor,
-      total,
-      fecha,
-      estado: 'Conciliada',
-      pdfUrl: uploadResult.url,
-      storage: uploadResult.storage
-    };
+    const memItem = { _id: `inv_${Date.now()}`, ...data, pdfUrl: uploadResult.url, storage: uploadResult.storage };
     memoryInvoices.unshift(memItem);
 
     return res.status(201).json({
@@ -119,7 +105,8 @@ router.post('/upload', upload.single('pdf'), async (req, res) => {
     });
   } catch (err) {
     console.error('Error al subir factura:', err);
-    return res.status(500).json({
+    const status = err.name === 'ValidationError' ? 400 : err.status || 500;
+    return res.status(status).json({
       success: false,
       message: err.message || 'Error al procesar el archivo PDF.'
     });

@@ -178,6 +178,16 @@ document.addEventListener('DOMContentLoaded', () => {
     loadData();
   });
 
+  // Escapa un valor para usarlo como argumento de texto dentro de onclick="fn('...')"
+  // (evita que nombres con apostrofes o comillas rompan el boton)
+  const jsArg = (val) =>
+    String(val ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '\\x3C')
+      .replace(/\r?\n/g, ' ');
+
   // Formateador de moneda
   const formatMoney = (val) =>
     '$' + Number(val || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -208,16 +218,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const canDelete = cachedTabs.length > 1;
 
         return `
-          <div class="entity-tab ${isActive ? 'active' : ''}" onclick="switchEntityTab('${tab.nombre}')">
+          <div class="entity-tab ${isActive ? 'active' : ''}" onclick="switchEntityTab('${jsArg(tab.nombre)}')">
             <span class="tab-label">${tab.nombre}</span>
             <span class="tab-badge" title="${tab.facturasCount || 0} facturas en esta pestania">${tab.facturasCount || 0}</span>
             <div class="tab-actions-group">
-              <button type="button" class="btn-tab-icon" onclick="event.stopPropagation(); openRenameTabModal('${tab.nombre}')" title="Renombrar esta pestania">
+              <button type="button" class="btn-tab-icon" onclick="event.stopPropagation(); openRenameTabModal('${jsArg(tab.nombre)}')" title="Renombrar esta pestania">
                 Editar
               </button>
               ${
                 canDelete
-                  ? `<button type="button" class="btn-tab-icon btn-tab-icon-delete" onclick="event.stopPropagation(); deleteEntityTab('${tab.nombre}')" title="Eliminar pestania">&times;</button>`
+                  ? `<button type="button" class="btn-tab-icon btn-tab-icon-delete" onclick="event.stopPropagation(); deleteEntityTab('${jsArg(tab.nombre)}')" title="Eliminar pestania">&times;</button>`
                   : ''
               }
             </div>
@@ -347,7 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
               </div>
             </div>
-            <button type="button" class="btn-delete-statement" onclick="deleteBankStatement('${st._id}', '${st.nombreArchivo}')" title="Eliminar archivo">
+            <button type="button" class="btn-delete-statement" onclick="deleteBankStatement('${st._id}', '${jsArg(st.nombreArchivo)}')" title="Eliminar archivo">
               Eliminar
             </button>
           </div>
@@ -736,7 +746,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     groupedRows.innerHTML = list
       .map((item, index) => {
-        const safeName = item.emisor.replace(/'/g, "\\'");
+        const safeName = jsArg(item.emisor);
         return `
           <tr>
             <td style="text-align:center; font-weight:600; color:var(--text-muted); font-size:11.5px;">${index + 1}</td>

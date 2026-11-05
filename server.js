@@ -3,7 +3,10 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
+const multer = require('multer');
 
 const connectDB = require('./src/config/db');
 const User = require('./src/models/User');
@@ -18,13 +21,18 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 // Hash de fallback para contrasena admin
 const ADMIN_PASSWORD_HASH = '$2b$10$GbssOZq3ZYpNtOGMVgiswO9pOb0xBg70/3tLd5bNGEDarhtjcf8l2';
 
+// Secreto para firmar tokens de sesion (HS256). Si no se define SESSION_SECRET se genera uno por arranque.
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
 // Conectar a MongoDB Atlas y asegurar usuario admin
 const initDatabase = async () => {
   await connectDB();
+  // Sin conexion no tiene sentido esperar el timeout de Mongoose para crear el admin
+  if (mongoose.connection.readyState !== 1) return;
   try {
-    const existingAdmin = await User.findOne({ username: ADMIN_USERNAME });
+    const existingAdmin = await User.findOne({ username: ADMIN_USERNAME.toLowerCase() });
     if (!existingAdmin) {
-      const hashedPassword = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+      const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
       await User.create({
         username: ADMIN_USERNAME,
         name: 'Administrador',
@@ -41,8 +49,8 @@ initDatabase();
 
 // Middlewares
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Servir archivos estaticos
 app.use(express.static(path.join(__dirname, 'public')));
@@ -54,17 +62,46 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// Las rutas de datos requieren MongoDB: si no hay conexion, responder de inmediato con un mensaje claro
+// en lugar de dejar la peticion colgada ~10 s hasta el timeout interno de Mongoose.
+const requireDatabase = (req, res, next) => {
+  const state = mongoose.connection.readyState; // 0 desconectado, 1 conectado, 2 conectando, 3 desconectando
+  if (state === 1 || state === 2) return next();
+  return res.status(503).json({
+    success: false,
+    message: process.env.MONGODB_URI
+      ? 'La base de datos no esta disponible en este momento. Intente de nuevo en unos segundos.'
+      : 'La base de datos no esta configurada (falta MONGODB_URI en el archivo .env).'
+  });
+};
+
 // Rutas de API
 app.use('/api/invoices', invoiceRoutes);
-app.use('/api/reconciliation', reconciliationRoutes);
+app.use('/api/reconciliation', requireDatabase, reconciliationRoutes);
 
-const generateSessionToken = (userId) => {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64');
-  const payload = Buffer.from(
-    JSON.stringify({ sub: userId, exp: Math.floor(Date.now() / 1000) + 3600 * 24, iat: Math.floor(Date.now() / 1000) })
-  ).toString('base64');
-  const signature = Buffer.from(`sec_${userId}_${Date.now()}`).toString('base64');
+const base64url = (input) =>
+  Buffer.from(input).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+/** Token de sesion con formato JWT firmado con HMAC-SHA256 (antes la firma no era verificable) */
+const generateSessionToken = (userId, ttlSeconds) => {
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = base64url(JSON.stringify({ sub: String(userId), iat: now, exp: now + ttlSeconds }));
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(`${header}.${payload}`)
+    .digest('base64')
+    .replace(/=+$/, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
   return `${header}.${payload}.${signature}`;
+};
+
+/** Comparacion de texto en tiempo constante para no filtrar informacion por tiempos de respuesta */
+const safeEqual = (a, b) => {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
 };
 
 // ================= RUTAS DE PAGINAS (HTML) =================
@@ -80,10 +117,10 @@ app.get('/dashboard', (req, res) => {
 // ================= API DE AUTENTICACION =================
 
 app.post('/api/auth/login', async (req, res) => {
-  const { username, email, password, rememberMe } = req.body;
-  const loginIdentifier = (username || email || '').trim().toLowerCase();
+  const { username, email, password, rememberMe } = req.body || {};
+  const loginIdentifier = String(username || email || '').trim().toLowerCase();
 
-  if (!loginIdentifier || !password) {
+  if (!loginIdentifier || !password || typeof password !== 'string') {
     return res.status(400).json({
       success: false,
       message: 'Debe ingresar el usuario y la contrasena.'
@@ -93,7 +130,9 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     let user = null;
     try {
-      user = await User.findOne({ username: loginIdentifier });
+      if (mongoose.connection.readyState === 1) {
+        user = await User.findOne({ username: loginIdentifier });
+      }
     } catch (dbErr) {
       user = null;
     }
@@ -104,7 +143,8 @@ app.post('/api/auth/login', async (req, res) => {
     let userRole = 'Administrador';
 
     if (user) {
-      isPasswordValid = bcrypt.compareSync(password, user.password);
+      // compare asincrono: no bloquea el servidor mientras calcula el hash
+      isPasswordValid = user.password ? await bcrypt.compare(password, user.password) : false;
       userId = user._id;
       userName = user.name || 'Administrador';
       userRole = user.role || 'Administrador';
@@ -114,7 +154,7 @@ app.post('/api/auth/login', async (req, res) => {
       loginIdentifier === 'admin@empresa.com'
     ) {
       // Fallback si la base de datos esta en modo local
-      isPasswordValid = password === ADMIN_PASSWORD || bcrypt.compareSync(password, ADMIN_PASSWORD_HASH);
+      isPasswordValid = safeEqual(password, ADMIN_PASSWORD) || (await bcrypt.compare(password, ADMIN_PASSWORD_HASH));
     }
 
     if (!isPasswordValid) {
@@ -124,7 +164,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    const token = generateSessionToken(userId);
+    // La duracion del token ahora coincide con "Recordarme" (antes siempre expiraba a las 24 h)
+    const token = generateSessionToken(userId, rememberMe ? 3600 * 24 * 30 : 3600 * 24);
 
     return res.status(200).json({
       success: true,
@@ -148,11 +189,13 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
+  const dbStates = ['Desconectado', 'Conectado', 'Conectando', 'Desconectando'];
   res.json({
     status: 'online',
     timestamp: new Date().toISOString(),
     service: 'Comparador de Facturas API',
     database: process.env.MONGODB_URI ? 'MongoDB Atlas Configurado' : 'Modo Memoria',
+    databaseState: dbStates[mongoose.connection.readyState] || 'Desconocido',
     storage: process.env.R2_ACCOUNT_ID ? 'Cloudflare R2 Configurado' : 'Disco Local'
   });
 });
@@ -167,14 +210,36 @@ app.use('/api/*', (req, res) => {
 
 // Middleware global de manejo de errores
 app.use((err, req, res, next) => {
-  console.error('[Error No Controlado]:', err);
   if (res.headersSent) {
     return next(err);
   }
-  res.status(err.status || 500).json({
+
+  // Errores de subida de archivos (tamano, cantidad o campo inesperado) son errores del cliente
+  if (err instanceof multer.MulterError) {
+    const messages = {
+      LIMIT_FILE_SIZE: 'El archivo excede el tamano maximo permitido.',
+      LIMIT_FILE_COUNT: 'Se excedio el numero maximo de archivos por envio.',
+      LIMIT_UNEXPECTED_FILE: 'Campo de archivo inesperado en el formulario.'
+    };
+    return res.status(400).json({ success: false, message: messages[err.code] || err.message });
+  }
+
+  // JSON mal formado en el cuerpo de la peticion
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, message: 'El cuerpo de la peticion no es JSON valido.' });
+  }
+
+  const status = err.status || err.statusCode || 500;
+  if (status >= 500) console.error('[Error No Controlado]:', err);
+  res.status(status).json({
     success: false,
     message: err.message || 'Error interno del servidor.'
   });
+});
+
+// Registrar promesas rechazadas sin manejar en lugar de que pasen desapercibidas
+process.on('unhandledRejection', (reason) => {
+  console.error('[Promesa no manejada]:', reason);
 });
 
 // Iniciar servidor

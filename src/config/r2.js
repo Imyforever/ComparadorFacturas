@@ -34,8 +34,15 @@ if (isR2Configured) {
  * @returns {Promise<{url: string, key: string, storage: 'r2'|'local'}>}
  */
 const uploadPdf = async (file) => {
+  if (!file || !file.buffer) {
+    throw new Error('No se recibio el contenido del archivo.');
+  }
   const timestamp = Date.now();
-  const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const safeName = (file.originalname || 'archivo.pdf')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9.-]/g, '_')
+    .slice(-120);
   const fileKey = `facturas/${timestamp}_${safeName}`;
 
   if (isR2Configured && s3Client) {
@@ -60,13 +67,12 @@ const uploadPdf = async (file) => {
 
   // Fallback local
   const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
+  await fs.promises.mkdir(uploadsDir, { recursive: true });
 
   const localFileName = `${timestamp}_${safeName}`;
   const localFilePath = path.join(uploadsDir, localFileName);
-  fs.writeFileSync(localFilePath, file.buffer);
+  // Escritura asincrona: no bloquea el servidor con archivos grandes
+  await fs.promises.writeFile(localFilePath, file.buffer);
 
   return {
     url: `/uploads/${localFileName}`,
