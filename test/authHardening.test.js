@@ -73,9 +73,17 @@ test('rate limit: un exito en otra cuenta no borra los fallos acumulados', () =>
   assert.equal(call(401, { username: 'victima' }), 429);
 });
 
-test('rate limit: el limite por usuario aplica aunque cambie la IP', () => {
+test('rate limit: un atacante desde otra IP no bloquea al usuario real', () => {
   const call = makeCall(createLoginRateLimit({ maxAttempts: 2 }));
-  call(401, { ip: '1.1.1.1' });
-  call(401, { ip: '2.2.2.2' });
-  assert.equal(call(401, { ip: '3.3.3.3' }), 429);
+  call(401, { ip: '6.6.6.6', username: 'admin' });
+  call(401, { ip: '6.6.6.6', username: 'admin' });
+  assert.equal(call(401, { ip: '6.6.6.6', username: 'admin' }), 429);
+  assert.equal(call(200, { ip: '1.1.1.1', username: 'admin' }), 200);
+});
+
+test('rate limit: memoria acotada ante muchos usuarios distintos e identificadores enormes', () => {
+  const mw = createLoginRateLimit({ maxAttempts: 1000000, maxEntries: 50 });
+  const call = makeCall(mw);
+  for (let i = 0; i < 500; i++) call(401, { ip: `10.0.${i >> 8}.${i & 255}`, username: 'x'.repeat(100000) + i });
+  assert.ok(mw._size() <= 50, `entradas: ${mw._size()}`);
 });
