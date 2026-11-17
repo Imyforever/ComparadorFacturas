@@ -50,7 +50,8 @@ Copia o edita tu archivo `.env`:
 ```env
 PORT=3000
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin
+ADMIN_PASSWORD=una_contrasena_robusta_de_10_o_mas
+SESSION_SECRET=cadena_aleatoria_larga
 
 # 1. MongoDB Atlas:
 # Obten tu URI en https://cloud.mongodb.com -> Connect -> Drivers
@@ -78,4 +79,4 @@ npm start
 
 * **Login**: [http://localhost:3000/](http://localhost:3000/)
 * **Dashboard**: [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
-* **Credenciales de acceso**: Usuario `admin` / Contrasena `admin` (hasheada en base de datos)
+* **Credenciales de acceso**: las de `ADMIN_USERNAME` / `ADMIN_PASSWORD` del `.env` (minimo 10 caracteres; contrasenas debiles como `admin` se rechazan). Tras 10 intentos fallidos en 15 min se bloquea el login por IP.

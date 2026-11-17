@@ -5,9 +5,11 @@
 const express = require('express');
 const authService = require('../services/authService');
 
+const { createLoginRateLimit } = require('../middleware/loginRateLimit');
+
 const router = express.Router();
 
-router.post('/login', async (req, res) => {
+router.post('/login', createLoginRateLimit(), async (req, res) => {
   try {
     const result = await authService.login(req.body || {});
     return res.status(200).json(result);

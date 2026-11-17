@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const http = require('http');
 const { PassThrough } = require('stream');
 
+// Las pruebas no dependen del .env local: credenciales de prueba robustas y sin MongoDB
+process.env.ADMIN_USERNAME = 'admin';
+process.env.ADMIN_PASSWORD = 'Prueba-Segura-2026';
+process.env.MONGODB_URI = '';
+
 const app = require('../src/app');
 const env = require('../src/config/env');
 const { createAuthMiddleware, generateSessionToken } = require('../src/middleware/auth');

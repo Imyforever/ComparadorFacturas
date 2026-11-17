@@ -18,7 +18,8 @@ const env = {
     return process.env.ADMIN_USERNAME || 'admin';
   },
   get ADMIN_PASSWORD() {
-    return process.env.ADMIN_PASSWORD || 'admin';
+    // Sin valor por defecto: si no se configura, el acceso de respaldo y la creacion del admin se desactivan
+    return process.env.ADMIN_PASSWORD || '';
   },
   get SESSION_SECRET() {
     return process.env.SESSION_SECRET || fallbackSessionSecret;

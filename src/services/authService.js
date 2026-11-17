@@ -75,6 +75,12 @@ const safeEqual = (a, b) => {
   return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
 };
 
+/** Contrasena de admin aceptable para el acceso de respaldo y para crear el usuario inicial */
+const MIN_ADMIN_PASSWORD_LENGTH = 10;
+const WEAK_PASSWORDS = new Set(['admin', 'password', 'contrasena', '1234567890', 'administrador']);
+const isStrongAdminPassword = (pwd) =>
+  typeof pwd === 'string' && pwd.length >= MIN_ADMIN_PASSWORD_LENGTH && !WEAK_PASSWORDS.has(pwd.toLowerCase());
+
 const createAuthService = ({
   userRepo = defaultUserRepo,
   config = env,
@@ -97,7 +103,7 @@ const createAuthService = ({
     }
 
     const adminUsername = String(config.ADMIN_USERNAME || 'admin').trim();
-    const adminPassword = String(config.ADMIN_PASSWORD || 'admin');
+    const adminPassword = String(config.ADMIN_PASSWORD || '');
 
     let isPasswordValid = false;
     let userId = 'usr_admin';
@@ -109,7 +115,8 @@ const createAuthService = ({
       userId = user._id;
       userName = user.name || 'Administrador';
       userRole = user.role || 'Administrador';
-    } else if (loginIdentifier === adminUsername.toLowerCase()) {
+    } else if (loginIdentifier === adminUsername.toLowerCase() && isStrongAdminPassword(adminPassword)) {
+      // Acceso de respaldo (sin BD) solo con una ADMIN_PASSWORD configurada y robusta
       isPasswordValid = safeEqual(password, adminPassword);
     }
 
@@ -137,10 +144,16 @@ const createAuthService = ({
   const ensureAdminUser = async () => {
     if (!userRepo.isConnected()) return;
     const adminUsername = String(config.ADMIN_USERNAME || 'admin').trim();
-    const adminPassword = String(config.ADMIN_PASSWORD || 'admin');
+    const adminPassword = String(config.ADMIN_PASSWORD || '');
     try {
       const existingAdmin = await userRepo.findByUsername(adminUsername);
       if (!existingAdmin) {
+        if (!isStrongAdminPassword(adminPassword)) {
+          console.warn(
+            `[Auth] No se creo el usuario ${adminUsername}: ADMIN_PASSWORD falta o es debil (minimo ${MIN_ADMIN_PASSWORD_LENGTH} caracteres).`
+          );
+          return;
+        }
         const hashedPassword = await bcrypt.hash(adminPassword, 10);
         await userRepo.create({
           username: adminUsername,
@@ -168,6 +181,7 @@ module.exports = {
   generateSessionToken,
   verifySessionToken,
   safeEqual,
+  isStrongAdminPassword,
   createAuthService,
   ...defaultService
 };
