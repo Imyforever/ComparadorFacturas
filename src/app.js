@@ -21,6 +21,9 @@ const ROOT_DIR = path.join(__dirname, '..');
 
 const createApp = () => {
   const app = express();
+  // Render (y Cloudflare) ponen un proxy delante: confiar en el primero para que req.ip sea la IP real
+  // del cliente y el limite de intentos de login no trate a todos los usuarios como una sola IP.
+  app.set('trust proxy', 1);
 
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
