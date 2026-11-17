@@ -122,8 +122,9 @@ const createLoginRateLimit = ({
     for (const key of keys) {
       let e = read(key);
       if (!e) {
-        if (full) continue;
-        e = { count: 0, resetAt: now() + windowMs };
+        // Con la tabla llena solo llega aqui un par conocido: sus contadores se guardan igual
+        // (excede el tope a lo mucho por las IPs conocidas, que tambien estan acotadas), nunca sin contar.
+        e ={ count: 0, resetAt: now() + windowMs };
         counters.set(key, e);
       }
       e.count += 1;
