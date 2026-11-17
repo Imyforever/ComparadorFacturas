@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
+const env = require('./env');
 
 const connectDB = async () => {
-  const uri = process.env.MONGODB_URI;
+  const uri = env.MONGODB_URI;
 
   if (!uri) {
     console.warn('[MongoDB] MONGODB_URI no esta definido en el archivo .env.');
@@ -9,7 +10,6 @@ const connectDB = async () => {
     return;
   }
 
-  // Avisar en consola si la conexion se pierde o se recupera durante la ejecucion
   mongoose.connection.on('disconnected', () => console.warn('[MongoDB Atlas] Conexion perdida.'));
   mongoose.connection.on('reconnected', () => console.log('[MongoDB Atlas] Conexion restablecida.'));
   mongoose.connection.on('error', (err) => console.error(`[MongoDB Atlas] Error: ${err.message}`));
@@ -19,7 +19,6 @@ const connectDB = async () => {
     console.log(`[MongoDB Atlas] Conectado exitosamente: ${conn.connection.host}`);
   } catch (error) {
     console.error(`[MongoDB Atlas] Error de conexion: ${error.message}`);
-    // No detenemos el servidor por completo para permitir diagnostico
   }
 };
 

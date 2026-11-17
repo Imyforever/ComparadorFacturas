@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseFlexibleDate, resolveYearForMonth, PERIODO_REGEX } = require('../src/services/dates');
+const { parseFlexibleDate, resolveYearForMonth, PERIODO_REGEX } = require('../src/utils/dates');
 
 const ymd = (d) => (d ? [d.getFullYear(), d.getMonth() + 1, d.getDate()] : null);
 
