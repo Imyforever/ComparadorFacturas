@@ -20,7 +20,7 @@ const TRUSTED_TTL_MS = 30 * 24 * 3600 * 1000;
 const MAX_ATTEMPTS = 10;
 const MAX_ACCOUNT_ATTEMPTS = 50;
 const MAX_ENTRIES = 20000;
-const MAX_IDENTIFIER_LENGTH = 254;
+const { normalizeLoginIdentifier } = require('../utils/text');
 
 const hashKey = (value) => crypto.createHash('sha256').update(value).digest('base64').slice(0, 22);
 
@@ -74,11 +74,12 @@ const createLoginRateLimit = ({
 
   const middleware = (req, res, next) => {
     const ip = ipBucket(req.ip || req.socket?.remoteAddress);
-    const body = req.body || {};
-    const user = String(body.username || body.email || '')
-      .slice(0, MAX_IDENTIFIER_LENGTH)
-      .trim()
-      .toLowerCase();
+    // Misma normalizacion que el servicio de login: no hay forma de que dos escrituras distintas
+    // del mismo usuario caigan en contadores diferentes
+    const user = normalizeLoginIdentifier(req.body || {});
+    if (user === null) {
+      return res.status(400).json({ success: false, message: 'El usuario es demasiado largo.' });
+    }
 
     // 1. Limite por IP (antes de crear cualquier clave nueva)
     const ipKey = hashKey(`ip:${ip}`);
@@ -87,6 +88,7 @@ const createLoginRateLimit = ({
 
     const checks = [[ipKey, maxAttempts]];
     let trustKey = null;
+    let isTrusted = false;
     if (user) {
       // 2. Limite por (usuario, IP)
       const pairKey = hashKey(`user:${user}|ip:${ip}`);
@@ -97,7 +99,7 @@ const createLoginRateLimit = ({
       // 3. Limite global por cuenta, salvo IPs conocidas para ese usuario
       trustKey = pairKey;
       const exp = trusted.get(trustKey);
-      const isTrusted = exp && exp > now();
+      isTrusted = Boolean(exp && exp > now());
       if (!isTrusted) {
         const accKey = hashKey(`account:${user}`);
         const accEntry = read(accKey);
@@ -106,18 +108,25 @@ const createLoginRateLimit = ({
       }
     }
 
-    // Claves nuevas necesarias; si no caben ni tras barrer vencidas, rechazar (no olvidar bloqueos activos)
+    // Claves nuevas necesarias; si no caben ni tras barrer vencidas, rechazar (no olvidar bloqueos activos).
+    // Excepcion: un usuario desde una IP conocida siempre puede intentar (sus claves nuevas no se guardan).
     const missing = checks.filter(([k]) => !read(k)).length;
+    let full = false;
     if (counters.size + missing > maxEntries) {
       sweep();
-      if (counters.size + missing > maxEntries) return tooMany(res, null);
+      full = counters.size + missing > maxEntries;
+      if (full && !isTrusted) return tooMany(res, null);
     }
 
     const keys = checks.map(([k]) => k);
     for (const key of keys) {
-      const e = read(key) || { count: 0, resetAt: now() + windowMs };
+      let e = read(key);
+      if (!e) {
+        if (full) continue;
+        e = { count: 0, resetAt: now() + windowMs };
+        counters.set(key, e);
+      }
       e.count += 1;
-      counters.set(key, e);
     }
 
     // Solo un login exitoso devuelve el intento reservado y marca la IP como conocida

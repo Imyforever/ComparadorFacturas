@@ -98,6 +98,28 @@ test('rate limit: IPv6 se agrupa por /64', () => {
   assert.equal(call(401, { ip: '2001:db8:1:2::3', username: 'c' }), 429);
 });
 
+test('rate limit: mayusculas y espacios no generan contadores distintos; identificadores largos se rechazan', () => {
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 2, maxAccountAttempts: 2 }));
+  call(401, { ip: '5.5.5.1', username: 'Admin' });
+  call(401, { ip: '5.5.5.2', username: '  ADMIN ' });
+  assert.equal(call(401, { ip: '5.5.5.3', username: 'admin' }), 429);
+  assert.equal(call(401, { ip: '5.5.5.4', username: 'a'.repeat(255) }), 400);
+});
+
+test('login rechaza identificadores demasiado largos', async () => {
+  const svc = createAuthService({ userRepo: noDbRepo, config: cfg('Xk9!pLq2vR7m') });
+  await assert.rejects(svc.login({ username: 'a'.repeat(255), password: 'x' }), { status: 400 });
+});
+
+test('rate limit: con la tabla llena la IP conocida del usuario sigue entrando', () => {
+  const mw = createLoginRateLimit({ maxAttempts: 2, maxAccountAttempts: 1000, maxEntries: 8 });
+  const call = makeCall(mw);
+  assert.equal(call(200, { ip: '1.1.1.1', username: 'admin' }), 200);
+  for (let i = 0; i < 50; i++) call(401, { ip: `10.0.0.${i}`, username: 'x' + i });
+  assert.equal(call(401, { ip: '10.0.1.1', username: 'nuevo' }), 429);
+  assert.equal(call(200, { ip: '1.1.1.1', username: 'admin' }), 200);
+});
+
 test('rate limit: tabla llena no borra bloqueos activos (falla cerrado)', () => {
   const mw = createLoginRateLimit({ maxAttempts: 2, maxAccountAttempts: 1000, maxEntries: 6 });
   const call = makeCall(mw);

@@ -94,7 +94,22 @@ const safeAsciiFileName = (fileName) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^\w.\- ]/g, '_');
 
+/** Longitud maxima aceptada de un identificador de login (usuario o correo) */
+const MAX_LOGIN_IDENTIFIER_LENGTH = 254;
+
+/**
+ * Normaliza el identificador de login igual en el limitador de intentos y en el servicio de auth.
+ * Devuelve '' si falta y null si excede la longitud maxima (debe rechazarse).
+ */
+const normalizeLoginIdentifier = (body = {}) => {
+  const id = String((body && (body.username || body.email)) || '').trim().toLowerCase();
+  if (id.length > MAX_LOGIN_IDENTIFIER_LENGTH) return null;
+  return id;
+};
+
 module.exports = {
+  MAX_LOGIN_IDENTIFIER_LENGTH,
+  normalizeLoginIdentifier,
   normalizeText,
   matchVendorName,
   normUuid,

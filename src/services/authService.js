@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const env = require('../config/env');
 const defaultUserRepo = require('../repositories/userRepository');
 const { httpError } = require('../utils/errors');
+const { normalizeLoginIdentifier } = require('../utils/text');
 
 const base64url = (input) =>
   Buffer.from(input).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -87,8 +88,11 @@ const createAuthService = ({
   nowSecondsFn = () => Math.floor(Date.now() / 1000)
 } = {}) => {
   const login = async ({ username, email, password, rememberMe } = {}) => {
-    const loginIdentifier = String(username || email || '').trim().toLowerCase();
+    const loginIdentifier = normalizeLoginIdentifier({ username, email });
 
+    if (loginIdentifier === null) {
+      throw httpError(400, 'El usuario es demasiado largo.');
+    }
     if (!loginIdentifier || !password || typeof password !== 'string') {
       throw httpError(400, 'Debe ingresar el usuario y la contrasena.');
     }
