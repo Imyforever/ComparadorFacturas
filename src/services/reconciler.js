@@ -129,8 +129,10 @@ const reconcile = (invoices = [], bankTransactions = []) => {
 
       for (const txIdx of idxs) {
         const info = txInfo[txIdx];
-        const diff = Math.abs(info.monto - total);
-        if (diff >= AMOUNT_TOLERANCE) continue;
+        // Diferencia en centavos enteros: evita errores de punto flotante (1160.05 - 1160 = 0.0499...)
+        const diffCents = Math.abs(Math.round(info.monto * 100) - totalCents);
+        if (diffCents >= toleranceCents) continue;
+        const diff = diffCents / 100;
 
         const rfcMatch =
           (invRfc && info.rfc && info.rfc === invRfc) ||

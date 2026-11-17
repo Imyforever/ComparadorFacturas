@@ -17,3 +17,6 @@ Thumbs.db
 
 # Scripts temporales
 scratch/
+
+# Progreso de agentes
+.agent/
