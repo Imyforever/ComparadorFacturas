@@ -73,17 +73,37 @@ test('rate limit: un exito en otra cuenta no borra los fallos acumulados', () =>
   assert.equal(call(401, { username: 'victima' }), 429);
 });
 
-test('rate limit: un atacante desde otra IP no bloquea al usuario real', () => {
-  const call = makeCall(createLoginRateLimit({ maxAttempts: 2 }));
-  call(401, { ip: '6.6.6.6', username: 'admin' });
-  call(401, { ip: '6.6.6.6', username: 'admin' });
-  assert.equal(call(401, { ip: '6.6.6.6', username: 'admin' }), 429);
-  assert.equal(call(200, { ip: '1.1.1.1', username: 'admin' }), 200);
+test('rate limit: ataque distribuido (muchas IPs) se frena con el limite global por cuenta', () => {
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 2, maxAccountAttempts: 5 }));
+  for (let i = 0; i < 5; i++) assert.equal(call(401, { ip: `9.9.9.${i}` }), 401);
+  assert.equal(call(401, { ip: '9.9.9.200' }), 429);
 });
 
-test('rate limit: memoria acotada ante muchos usuarios distintos e identificadores enormes', () => {
-  const mw = createLoginRateLimit({ maxAttempts: 1000000, maxEntries: 50 });
+test('rate limit: la IP conocida del usuario real entra aunque la cuenta este bajo ataque', () => {
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 2, maxAccountAttempts: 3 }));
+  assert.equal(call(200, { ip: '1.1.1.1' }), 200); // el usuario real entra una vez: IP conocida
+  for (let i = 0; i < 3; i++) call(401, { ip: `6.6.6.${i}` });
+  assert.equal(call(401, { ip: '6.6.6.99' }), 429); // atacante bloqueado
+  assert.equal(call(200, { ip: '1.1.1.1' }), 200); // usuario real no
+});
+
+test('rate limit: IPv6 se agrupa por /64', () => {
+  const { ipBucket } = require('../src/middleware/loginRateLimit');
+  assert.equal(ipBucket('2001:db8:1:2:aaaa::1'), ipBucket('2001:db8:1:2:bbbb:cccc:dddd:eeee'));
+  assert.notEqual(ipBucket('2001:db8:1:2::1'), ipBucket('2001:db8:1:3::1'));
+  assert.equal(ipBucket('::ffff:10.0.0.1'), '10.0.0.1');
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 2 }));
+  call(401, { ip: '2001:db8:1:2::1', username: 'a' });
+  call(401, { ip: '2001:db8:1:2::2', username: 'b' });
+  assert.equal(call(401, { ip: '2001:db8:1:2::3', username: 'c' }), 429);
+});
+
+test('rate limit: tabla llena no borra bloqueos activos (falla cerrado)', () => {
+  const mw = createLoginRateLimit({ maxAttempts: 2, maxAccountAttempts: 1000, maxEntries: 6 });
   const call = makeCall(mw);
-  for (let i = 0; i < 500; i++) call(401, { ip: `10.0.${i >> 8}.${i & 255}`, username: 'x'.repeat(100000) + i });
-  assert.ok(mw._size() <= 50, `entradas: ${mw._size()}`);
+  call(401, { ip: '1.1.1.1', username: 'victima' });
+  call(401, { ip: '1.1.1.1', username: 'victima' }); // IP 1.1.1.1 bloqueada
+  for (let i = 0; i < 50; i++) call(401, { ip: `10.0.0.${i}`, username: 'x'.repeat(100000) + i });
+  assert.ok(mw._size() <= 6, `entradas: ${mw._size()}`);
+  assert.equal(call(401, { ip: '1.1.1.1', username: 'victima' }), 429);
 });

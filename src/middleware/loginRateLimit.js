@@ -1,30 +1,52 @@
 /**
  * Limite de intentos de login (en memoria) para frenar ataques de fuerza bruta.
  *
- * - Dos contadores: por IP y por par (usuario, IP). El de usuario va ligado a la IP para que alguien
- *   desde otra IP no pueda bloquear la cuenta del usuario real.
- * - El intento se reserva ANTES de procesar la peticion: las peticiones en paralelo y las abortadas cuentan.
- * - Un login exitoso solo devuelve SU propio intento; no borra fallos de otras claves.
- * - Memoria acotada: claves con hash de tamano fijo, identificador truncado, barrido de vencidas
- *   y tope de entradas (se descartan las mas antiguas).
+ * Contadores (ventana de 15 min, el intento se reserva ANTES de procesar la peticion):
+ *  - Por IP (IPv6 agrupado por /64): maxAttempts.
+ *  - Por par (usuario, IP): maxAttempts.
+ *  - Global por cuenta: maxAccountAttempts (mas alto). Frena ataques distribuidos desde muchas IPs.
+ *    No aplica a IPs "conocidas" (desde las que ese usuario ya inicio sesion), para que un atacante
+ *    no pueda bloquear al usuario real.
+ * Un login exitoso solo devuelve SU propio intento y marca la IP como conocida para ese usuario.
+ *
+ * Memoria acotada: claves con hash de tamano fijo, identificador truncado y barrido de vencidas.
+ * Las entradas activas nunca se descartan: si la tabla se llena, se rechaza (429) en vez de olvidar bloqueos.
  */
 
 const crypto = require('crypto');
 
 const WINDOW_MS = 15 * 60 * 1000;
+const TRUSTED_TTL_MS = 30 * 24 * 3600 * 1000;
 const MAX_ATTEMPTS = 10;
-const MAX_ENTRIES = 10000;
+const MAX_ACCOUNT_ATTEMPTS = 50;
+const MAX_ENTRIES = 20000;
 const MAX_IDENTIFIER_LENGTH = 254;
 
 const hashKey = (value) => crypto.createHash('sha256').update(value).digest('base64').slice(0, 22);
 
+/** Normaliza la IP: IPv4 (incluida la forma ::ffff:a.b.c.d) tal cual; IPv6 reducida a su prefijo /64 */
+const ipBucket = (rawIp) => {
+  const ip = String(rawIp || 'desconocida').trim().toLowerCase();
+  const v4 = ip.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4) return v4[1];
+  if (!ip.includes(':')) return ip;
+  const [head, tail = ''] = ip.split('::');
+  const headParts = head ? head.split(':') : [];
+  const tailParts = tail ? tail.split(':') : [];
+  const fill = new Array(Math.max(0, 8 - headParts.length - tailParts.length)).fill('0');
+  const full = ip.includes('::') ? [...headParts, ...fill, ...tailParts] : headParts;
+  return `${full.slice(0, 4).map((p) => p || '0').join(':')}::/64`;
+};
+
 const createLoginRateLimit = ({
   windowMs = WINDOW_MS,
   maxAttempts = MAX_ATTEMPTS,
+  maxAccountAttempts = MAX_ACCOUNT_ATTEMPTS,
   maxEntries = MAX_ENTRIES,
   now = () => Date.now()
 } = {}) => {
-  const counters = new Map(); // hash de clave -> { count, resetAt } (orden de insercion = antiguedad)
+  const counters = new Map(); // hash -> { count, resetAt }
+  const trusted = new Map(); // hash(usuario|ip) -> expira
 
   const read = (key) => {
     const e = counters.get(key);
@@ -38,22 +60,12 @@ const createLoginRateLimit = ({
   const sweep = () => {
     const t = now();
     for (const [k, e] of counters) if (e.resetAt <= t) counters.delete(k);
-    // Si aun excede el tope, descartar las entradas mas antiguas
-    while (counters.size >= maxEntries) counters.delete(counters.keys().next().value);
-  };
-
-  const reserve = (key) => {
-    let e = read(key);
-    if (!e) {
-      if (counters.size >= maxEntries) sweep();
-      e = { count: 0, resetAt: now() + windowMs };
-      counters.set(key, e);
-    }
-    e.count += 1;
+    for (const [k, exp] of trusted) if (exp <= t) trusted.delete(k);
   };
 
   const tooMany = (res, entry) => {
-    res.set('Retry-After', String(Math.max(1, Math.ceil((entry.resetAt - now()) / 1000))));
+    const resetAt = entry ? entry.resetAt : now() + windowMs;
+    res.set('Retry-After', String(Math.max(1, Math.ceil((resetAt - now()) / 1000))));
     return res.status(429).json({
       success: false,
       message: 'Demasiados intentos fallidos. Intente de nuevo en unos minutos.'
@@ -61,34 +73,63 @@ const createLoginRateLimit = ({
   };
 
   const middleware = (req, res, next) => {
-    const ip = String(req.ip || req.socket?.remoteAddress || 'desconocida');
+    const ip = ipBucket(req.ip || req.socket?.remoteAddress);
     const body = req.body || {};
     const user = String(body.username || body.email || '')
       .slice(0, MAX_IDENTIFIER_LENGTH)
       .trim()
       .toLowerCase();
 
-    // Primero la IP: si ya esta bloqueada no se crea ninguna clave nueva
+    // 1. Limite por IP (antes de crear cualquier clave nueva)
     const ipKey = hashKey(`ip:${ip}`);
     const ipEntry = read(ipKey);
     if (ipEntry && ipEntry.count >= maxAttempts) return tooMany(res, ipEntry);
 
-    const keys = [ipKey];
+    const checks = [[ipKey, maxAttempts]];
+    let trustKey = null;
     if (user) {
-      const userKey = hashKey(`user:${user}|ip:${ip}`);
-      const userEntry = read(userKey);
-      if (userEntry && userEntry.count >= maxAttempts) return tooMany(res, userEntry);
-      keys.push(userKey);
+      // 2. Limite por (usuario, IP)
+      const pairKey = hashKey(`user:${user}|ip:${ip}`);
+      const pairEntry = read(pairKey);
+      if (pairEntry && pairEntry.count >= maxAttempts) return tooMany(res, pairEntry);
+      checks.push([pairKey, maxAttempts]);
+
+      // 3. Limite global por cuenta, salvo IPs conocidas para ese usuario
+      trustKey = pairKey;
+      const exp = trusted.get(trustKey);
+      const isTrusted = exp && exp > now();
+      if (!isTrusted) {
+        const accKey = hashKey(`account:${user}`);
+        const accEntry = read(accKey);
+        if (accEntry && accEntry.count >= maxAccountAttempts) return tooMany(res, accEntry);
+        checks.push([accKey, maxAccountAttempts]);
+      }
     }
 
-    keys.forEach(reserve);
+    // Claves nuevas necesarias; si no caben ni tras barrer vencidas, rechazar (no olvidar bloqueos activos)
+    const missing = checks.filter(([k]) => !read(k)).length;
+    if (counters.size + missing > maxEntries) {
+      sweep();
+      if (counters.size + missing > maxEntries) return tooMany(res, null);
+    }
 
-    // Solo un login exitoso devuelve el intento reservado (fallos, errores y abortos siguen contando)
+    const keys = checks.map(([k]) => k);
+    for (const key of keys) {
+      const e = read(key) || { count: 0, resetAt: now() + windowMs };
+      e.count += 1;
+      counters.set(key, e);
+    }
+
+    // Solo un login exitoso devuelve el intento reservado y marca la IP como conocida
     res.on('finish', () => {
       if (res.statusCode !== 200) return;
       for (const key of keys) {
         const e = read(key);
         if (e) e.count = Math.max(0, e.count - 1);
+      }
+      if (trustKey) {
+        if (trusted.size >= maxEntries) sweep();
+        if (trusted.size < maxEntries) trusted.set(trustKey, now() + TRUSTED_TTL_MS);
       }
     });
     return next();
@@ -98,4 +139,4 @@ const createLoginRateLimit = ({
   return middleware;
 };
 
-module.exports = { createLoginRateLimit };
+module.exports = { createLoginRateLimit, ipBucket };
