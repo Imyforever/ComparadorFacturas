@@ -31,26 +31,51 @@ test('no se crea usuario admin con contrasena debil', async () => {
   assert.equal(created, false);
 });
 
-test('rate limit: 429 tras demasiados 401 y se reinicia al expirar la ventana', () => {
-  let t = 0;
-  const mw = createLoginRateLimit({ windowMs: 1000, maxFailures: 2, now: () => t });
-  const call = (status) => {
-    const handlers = {};
-    const res = {
-      statusCode: status,
-      set() {},
-      status(c) { this.statusCode = c; return this; },
-      json() { return this; },
-      on(ev, fn) { handlers[ev] = fn; }
-    };
-    let passed = false;
-    mw({ ip: '1.1.1.1' }, res, () => { passed = true; });
-    if (passed) handlers.finish();
-    return passed ? status : res.statusCode;
+// Simula una peticion: devuelve { status, finish } — finish() emite 'finish' con el estado indicado
+const makeCall = (mw) => (status, { ip = '1.1.1.1', username = 'admin', finish = true } = {}) => {
+  const handlers = {};
+  const res = {
+    statusCode: status,
+    set() {},
+    status(c) { this.statusCode = c; return this; },
+    json() { return this; },
+    on(ev, fn) { handlers[ev] = fn; }
   };
+  let passed = false;
+  mw({ ip, body: { username } }, res, () => { passed = true; });
+  if (passed && finish) handlers.finish();
+  return passed ? status : res.statusCode;
+};
+
+test('rate limit: 429 tras demasiados fallos y se reinicia al expirar la ventana', () => {
+  let t = 0;
+  const call = makeCall(createLoginRateLimit({ windowMs: 1000, maxAttempts: 2, now: () => t }));
   assert.equal(call(401), 401);
   assert.equal(call(401), 401);
   assert.equal(call(200), 429);
   t = 2000;
   assert.equal(call(200), 200);
+});
+
+test('rate limit: peticiones en paralelo (sin terminar) cuentan desde el inicio', () => {
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 2 }));
+  assert.equal(call(401, { finish: false }), 401);
+  assert.equal(call(401, { finish: false }), 401);
+  assert.equal(call(401, { finish: false }), 429);
+});
+
+test('rate limit: un exito en otra cuenta no borra los fallos acumulados', () => {
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 3 }));
+  call(401, { username: 'victima' });
+  call(401, { username: 'victima' });
+  assert.equal(call(200, { username: 'propia' }), 200);
+  assert.equal(call(401, { username: 'victima' }), 401);
+  assert.equal(call(401, { username: 'victima' }), 429);
+});
+
+test('rate limit: el limite por usuario aplica aunque cambie la IP', () => {
+  const call = makeCall(createLoginRateLimit({ maxAttempts: 2 }));
+  call(401, { ip: '1.1.1.1' });
+  call(401, { ip: '2.2.2.2' });
+  assert.equal(call(401, { ip: '3.3.3.3' }), 429);
 });
