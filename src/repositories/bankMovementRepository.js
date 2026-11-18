@@ -14,8 +14,33 @@ const ownedByUpload = (periodo) => ({
   $or: [{ archivoPeriodo: periodo }, { archivoPeriodo: { $in: [null, ''] }, periodo }]
 });
 
+/** Retiros de un mes (se excluyen los duplicados de otro archivo, que no cuentan para nada) */
 const findRetirosInScope = (periodo, entidad) =>
-  BankMovement.find({ ...movementScope(periodo, entidad), tipo: 'Retiro' }).lean();
+  BankMovement.find({ ...movementScope(periodo, entidad), tipo: 'Retiro', duplicadoDe: null }).lean();
+
+/** Retiros del mes anterior (mismo criterio de alcance que un mes normal) para casar facturas del mes siguiente */
+const findRetirosOfPreviousMonth = (previousPeriodo, entidad) => findRetirosInScope(previousPeriodo, entidad);
+
+/** Movimientos de OTROS archivos de la entidad que pueden ser el original de un movimiento que se sube */
+const findDuplicateCandidates = (entidad, archivoOrigen, fechas = []) =>
+  BankMovement.find(
+    { entidad, archivoOrigen: { $ne: archivoOrigen }, duplicadoDe: null, fecha: { $in: fechas } },
+    { fecha: 1, tipo: 1, monto: 1, saldo: 1, cuenta: 1, archivoOrigen: 1 }
+  ).lean();
+
+/** Quita la marca duplicadoDe de los movimientos que apuntaban a ids que ya no existen; devuelve sus alcances */
+const releaseDuplicatesOf = async (ids) => {
+  if (!ids || ids.length === 0) return [];
+  const freed = await BankMovement.find(
+    { duplicadoDe: { $in: ids } },
+    { entidad: 1, periodo: 1, archivoPeriodo: 1, archivoOrigen: 1 }
+  ).lean();
+  if (freed.length > 0) await BankMovement.updateMany({ duplicadoDe: { $in: ids } }, { $set: { duplicadoDe: null } });
+  return freed;
+};
+
+/** Lectura generica (scripts de datos). Siempre lean */
+const findAll = (filter = {}, projection = null) => BankMovement.find(filter, projection).lean();
 
 const findBBVAByFilesInScope = (periodo, entidad, officialFiles) =>
   BankMovement.find(
@@ -66,7 +91,7 @@ const renameEntidadByUpload = (periodo, oldNombre, newNombre) =>
 
 const aggregateStatsByFiles = (entidad, nombresArchivo) =>
   BankMovement.aggregate([
-    { $match: { entidad, archivoOrigen: { $in: nombresArchivo } } },
+    { $match: { entidad, archivoOrigen: { $in: nombresArchivo }, duplicadoDe: null } },
     {
       $group: {
         _id: '$archivoOrigen',
@@ -88,6 +113,10 @@ module.exports = {
   movementScope,
   ownedByUpload,
   findRetirosInScope,
+  findRetirosOfPreviousMonth,
+  findDuplicateCandidates,
+  releaseDuplicatesOf,
+  findAll,
   findBBVAByFilesInScope,
   findById,
   updateById,

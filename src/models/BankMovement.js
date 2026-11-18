@@ -82,6 +82,12 @@ const bankMovementSchema = new mongoose.Schema(
     categoria: {
       type: String,
       default: ''
+    },
+    // _id del movimiento equivalente en OTRO archivo de la misma entidad y cuenta (no se borra, solo se excluye)
+    duplicadoDe: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'BankMovement',
+      default: null
     }
   },
   {

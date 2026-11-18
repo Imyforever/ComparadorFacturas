@@ -5,7 +5,7 @@
 const mongoose = require('mongoose');
 const Invoice = require('../models/Invoice');
 
-const RESET_INVOICE_PAYMENT = { estadoPago: 'No Pagada', pagoAsociado: null, editadoManualmente: false };
+const RESET_INVOICE_PAYMENT = { estadoPago: 'No Pagada', pagoAsociado: null, pagoConjunto: null, editadoManualmente: false };
 
 const isConnected = () => mongoose.connection.readyState === 1;
 
@@ -18,6 +18,18 @@ const findByPeriodAndEntity = (periodo, entidad, { sortByFecha = false } = {}) =
   if (sortByFecha) query.sort({ fechaEmision: 1 });
   return query.lean();
 };
+
+/** Facturas Pagada de TODOS los meses de la entidad con concepto bancario (para aprender alias de proveedor) */
+const findPaidWithBankConceptByEntity = (entidad) =>
+  Invoice.find(
+    {
+      entidad,
+      estadoPago: 'Pagada',
+      'pagoAsociado.movimientoId': { $ne: null },
+      'pagoAsociado.conceptoBanco': { $nin: [null, ''] }
+    },
+    { uuid: 1, rfcEmisor: 1, estadoPago: 1, pagoAsociado: 1, pagoConjunto: 1 }
+  ).lean();
 
 const findByUuid = (uuid, { lean = false } = {}) => {
   const query = Invoice.findOne({ uuid });
@@ -108,6 +120,7 @@ module.exports = {
   getAllowedEstadosPago,
   findAllSorted,
   findByPeriodAndEntity,
+  findPaidWithBankConceptByEntity,
   findByUuid,
   findExternalPaidByMovementIds,
   findAffectedByMovementIds,

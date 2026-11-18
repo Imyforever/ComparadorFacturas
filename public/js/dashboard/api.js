@@ -124,6 +124,13 @@ export const api = {
     });
   },
 
+  bulkManualPaid(uuids, nota) {
+    return apiFetch('/api/reconciliation/bulk-manual-paid', {
+      method: 'POST',
+      body: JSON.stringify({ uuids, nota })
+    });
+  },
+
   updateInvoice(uuid, payload) {
     return apiFetch(`/api/reconciliation/invoice/${encodeURIComponent(uuid)}`, {
       method: 'PATCH',

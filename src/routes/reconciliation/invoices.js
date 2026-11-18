@@ -40,4 +40,20 @@ router.patch('/invoice/:uuid', async (req, res) => {
   }
 });
 
+router.post('/bulk-manual-paid', async (req, res) => {
+  try {
+    const { actualizadas } = await manualLinkService.bulkMarkPaidManual({
+      uuids: req.body?.uuids,
+      nota: req.body?.nota
+    });
+    return res.json({
+      success: true,
+      message: `${actualizadas} factura(s) marcada(s) como pagadas en efectivo.`,
+      actualizadas
+    });
+  } catch (err) {
+    return sendError(res, err, 'Error marcando facturas como pagadas:');
+  }
+});
+
 module.exports = router;

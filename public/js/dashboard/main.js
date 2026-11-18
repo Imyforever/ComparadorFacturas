@@ -11,6 +11,7 @@ import { filterInvoices, updateAnalyzedOptions } from './search.js';
 import {
   renderAutoCreditNoteSection,
   renderDetailView,
+  isBulkSelectable,
   renderGroupedView,
   renderUnmatchedBankMovements,
   updateActiveFilterBanner,
@@ -173,15 +174,37 @@ document.addEventListener('DOMContentLoaded', () => {
       totalCount: state.cachedInvoices.length
     });
 
+    // La seleccion solo conserva facturas que siguen visibles y No Pagadas
+    const selectable = filtered.filter(isBulkSelectable);
+    const visible = new Set(selectable.map((i) => i.uuid));
+    for (const uuid of state.selectedUuids) if (!visible.has(uuid)) state.selectedUuids.delete(uuid);
+    state.visibleSelectableUuids = selectable.map((i) => i.uuid);
+
     if (state.currentViewMode === 'grouped') {
       renderGroupedView(els, filtered);
     } else {
-      renderDetailView(els, filtered);
+      renderDetailView(els, filtered, state.selectedUuids);
+    }
+    updateBulkCashButton();
+  }
+
+  function updateBulkCashButton() {
+    const btn = document.getElementById('btn-bulk-cash');
+    const count = document.getElementById('bulk-cash-count');
+    const all = document.getElementById('chk-select-all-unpaid');
+    const n = state.selectedUuids.size;
+    if (count) count.textContent = String(n);
+    if (btn) btn.style.display = n > 0 && state.currentViewMode !== 'grouped' ? '' : 'none';
+    if (all) {
+      const total = (state.visibleSelectableUuids || []).length;
+      all.checked = total > 0 && n === total;
+      all.indeterminate = n > 0 && n < total;
+      all.disabled = total === 0;
     }
   }
 
   async function loadData() {
-    els.invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">Cargando facturas de "${escapeHtml(state.currentEntidad)}" desde MongoDB Atlas...</td></tr>`;
+    els.invoiceRows.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--text-muted);">Cargando facturas de "${escapeHtml(state.currentEntidad)}" desde MongoDB Atlas...</td></tr>`;
 
     try {
       const { data } = await api.data(state.currentPeriodo, state.currentEntidad);
@@ -203,12 +226,12 @@ document.addEventListener('DOMContentLoaded', () => {
           renderTabs();
         }
       } else {
-        els.invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">${escapeHtml(data.message || 'Error cargando datos.')}</td></tr>`;
+        els.invoiceRows.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--error);">${escapeHtml(data.message || 'Error cargando datos.')}</td></tr>`;
       }
     } catch (err) {
       console.error('Error cargando datos en dashboard:', err);
       const errMsg = err.message ? `Error: ${err.message}` : 'Error de conexion con el servidor.';
-      els.invoiceRows.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--error);">${escapeHtml(errMsg)}</td></tr>`;
+      els.invoiceRows.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--error);">${escapeHtml(errMsg)}</td></tr>`;
     }
   }
 
@@ -290,6 +313,41 @@ document.addEventListener('DOMContentLoaded', () => {
       state.currentFilter = btn.dataset.filter;
       applyFilterAndRender();
     });
+  });
+
+  // Seleccion para marcar en bloque como pagadas en efectivo
+  els.invoiceRows?.addEventListener('change', (e) => {
+    const chk = e.target.closest('[data-action="select-invoice"]');
+    if (!chk) return;
+    if (chk.checked) state.selectedUuids.add(chk.dataset.uuid);
+    else state.selectedUuids.delete(chk.dataset.uuid);
+    updateBulkCashButton();
+  });
+
+  document.getElementById('chk-select-all-unpaid')?.addEventListener('change', (e) => {
+    state.selectedUuids = e.target.checked ? new Set(state.visibleSelectableUuids || []) : new Set();
+    applyFilterAndRender();
+  });
+
+  document.getElementById('btn-bulk-cash')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const uuids = Array.from(state.selectedUuids);
+    if (uuids.length === 0) return;
+    if (!confirm(`Se marcaran ${uuids.length} factura(s) como pagadas en efectivo. ¿Continuar?`)) return;
+    btn.disabled = true;
+    try {
+      const { ok, data } = await api.bulkManualPaid(uuids, 'PAGADO EN EFECTIVO');
+      if (ok && data.success) {
+        state.selectedUuids = new Set();
+        await reloadAll();
+      } else {
+        alert(data.message || 'Error al marcar las facturas.');
+      }
+    } catch {
+      alert('Error de conexion con el servidor.');
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // Delegacion en tablas

@@ -53,6 +53,45 @@ const matchVendorName = (emisor, concepto, conceptoYaNormalizado = false) => {
   return keywords.some((kw) => conceptWords.has(kw) || (kw.length >= 6 && normConcepto.includes(kw)));
 };
 
+const PAGE_MARKER_SOURCE = '--\\s*\\d+\\s+of\\s+\\d+\\s*--|Detalle\\s+de\\s+tus\\s+movimientos';
+// La leyenda legal del banco llega pegada al ultimo movimiento de cada pagina: va desde su inicio hasta el
+// siguiente marcador de pagina (si hay) o hasta el final del concepto.
+const LEGAL_LEGEND_REGEX = new RegExp(
+  `Para\\s+los\\s+efectos\\s+del\\s+art\\.?\\s*100\\s+de\\s+la\\s+Ley\\s+de\\s+Instituciones\\s+de\\s+Cr[eé]dito[\\s\\S]*?(?=${PAGE_MARKER_SOURCE}|$)`,
+  'gi'
+);
+const PAGE_MARKER_REGEX = new RegExp(PAGE_MARKER_SOURCE, 'gi');
+
+/**
+ * Limpia basura de pagina que los PDF de los bancos dejan dentro del concepto:
+ * "-- 2 of 18 --", "Detalle de tus movimientos", la leyenda legal del art. 100 de la LIC y espacios dobles.
+ */
+// Cargos propios del banco (comisiones de terminal, IVA de comisiones, cuotas): no son pagos a proveedores
+const BANK_FEE_REGEX = /TASA\s+DE\s+DESC?|TERMINALES\s+PUNTO\s+DE\s+VENTA|COMISION(ES)?|IVA\s+(COM|COMISION|TASA)|ANUALIDAD|CUOTA\s+(DE\s+)?MANEJO/i;
+
+/** true si el concepto es un cargo propio del banco (comision/IVA de comision/cuota) */
+const isBankFeeConcept = (concepto) => BANK_FEE_REGEX.test(String(concepto || ''));
+
+const cleanBankConcept = (text) => {
+  if (text === undefined || text === null) return '';
+  return String(text)
+    .replace(LEGAL_LEGEND_REGEX, ' ')
+    .replace(PAGE_MARKER_REGEX, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+/** Detecta el primer RFC (persona fisica o moral) que aparece en un concepto bancario; null si no hay */
+const detectRfcInConcept = (text) => {
+  const s = String(text || '');
+  const m =
+    s.match(/RFC:\s*([A-Z&Ñ]{3,4}\s*[0-9]{6}\s*[A-Z0-9]{3})/i) ||
+    s.match(/Ref\.\s*([A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3})/i) ||
+    s.match(/\b([A-Z&Ñ]{3,4})\s*([0-9]{6})\s*([A-Z0-9]{3})\b/i);
+  if (!m) return null;
+  return (m[2] ? `${m[1]}${m[2]}${m[3]}` : m[1]).replace(/\s+/g, '').toUpperCase();
+};
+
 const normUuid = (value) => String(value || '').trim().toUpperCase();
 
 /** Verifica si un valor tiene formato valido de ObjectId de 24 caracteres hexadecimales */
@@ -108,10 +147,13 @@ const normalizeLoginIdentifier = (body = {}) => {
 };
 
 module.exports = {
+  isBankFeeConcept,
   MAX_LOGIN_IDENTIFIER_LENGTH,
   normalizeLoginIdentifier,
   normalizeText,
   matchVendorName,
+  cleanBankConcept,
+  detectRfcInConcept,
   normUuid,
   isObjectId,
   decodeTextBuffer,

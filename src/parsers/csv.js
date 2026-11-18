@@ -4,6 +4,7 @@
 
 const { NUM_TO_MONTH_MAP } = require('../utils/dates');
 const { parseAmount } = require('../utils/money');
+const { cleanBankConcept } = require('../utils/text');
 const { splitCsvLine, detectCsvDelimiter } = require('../utils/csv');
 
 const id = 'scotiabank-csv';
@@ -109,7 +110,7 @@ const parseCsvOrExcelBankStatement = (text, defaultYear = '2026') => {
     const conceptParts = [transaccion, leyenda1, leyenda2, leyenda3, infoSpei]
       .map((s) => s.trim())
       .filter(Boolean);
-    const fullConcept = conceptParts.join(' | ');
+    const fullConcept = cleanBankConcept(conceptParts.join(' | '));
 
     let rfc = null;
     const rfcMatch = fullConcept.match(rfcRegex);

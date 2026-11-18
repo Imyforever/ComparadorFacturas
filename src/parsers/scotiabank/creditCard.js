@@ -3,6 +3,7 @@
  */
 
 const { MONTH_MAP } = require('../../utils/dates');
+const { cleanBankConcept } = require('../../utils/text');
 
 const id = 'scotiabank-credit-card';
 
@@ -94,7 +95,7 @@ const parseScotiabankCreditCardStatement = (text, defaultYear = '2026') => {
       monto: amount,
       saldo: 0,
       rfcDetectado: rfc,
-      concepto: `${desc} (Cargo: ${fechaCargo})`.substring(0, 250),
+      concepto: cleanBankConcept(`${desc} (Cargo: ${fechaCargo})`).substring(0, 250),
       conciliado: false
     });
   }

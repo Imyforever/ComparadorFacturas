@@ -9,6 +9,9 @@ const defaultBankStatementRepo = require('../repositories/bankStatementRepositor
 const defaultAccountTabRepo = require('../repositories/accountTabRepository');
 const { classifyBBVAMovementIsRetiro } = require('../parsers/bbva/classify');
 const { reconcile } = require('./reconciler');
+const { learnVendorAliases } = require('./vendorAliases');
+const { matchJointPayments, applyJointAssignments } = require('./jointPaymentMatcher');
+const { previousPeriodo, selectPreviousMonthMovements } = require('./previousMonth');
 const {
   AUTO_NC_TIPO,
   isAutoCreditNoteInvoice,
@@ -78,6 +81,12 @@ const samePago = (a, b) => {
     a.fechaPago === b.fechaPago
   );
 };
+
+/** Llave estable del grupo de un pago conjunto ('' si la factura no es de un pago conjunto) */
+const jointKey = (inv) =>
+  inv && inv.pagoConjunto && Array.isArray(inv.pagoConjunto.uuids) && inv.pagoConjunto.uuids.length > 0
+    ? `${inv.pagoConjunto.uuids.join(',')}|${toCents(inv.pagoConjunto.total)}`
+    : '';
 
 const createReconciliationService = ({
   invoiceRepo = defaultInvoiceRepo,
@@ -150,6 +159,47 @@ const createReconciliationService = ({
     }
   };
 
+  /** Alias de proveedor aprendidos de los pagos exactos/manuales de TODOS los meses de la entidad */
+  const loadVendorAliases = async (entidad) => {
+    if (typeof invoiceRepo.findPaidWithBankConceptByEntity !== 'function') return new Map();
+    return learnVendorAliases(await invoiceRepo.findPaidWithBankConceptByEntity(entidad));
+  };
+
+  /** Retiros libres del mes anterior (marcados mesAnterior) disponibles para las facturas de este mes */
+  const loadPreviousMonthMovements = async ({
+    periodo,
+    entidad,
+    bankMovements,
+    excludedMovementIds,
+    autoInvoiceUuids
+  }) => {
+    const prev = previousPeriodo(periodo);
+    if (!prev || typeof bankMovementRepo.findRetirosOfPreviousMonth !== 'function') return [];
+
+    const [candidates, previousInvoices] = await Promise.all([
+      bankMovementRepo.findRetirosOfPreviousMonth(prev, entidad),
+      invoiceRepo.findByPeriodAndEntity(prev, entidad)
+    ]);
+    if (candidates.length === 0) return [];
+
+    // Reservados por facturas de otros meses (incluido el mes anterior): no estan libres
+    const reserved = await invoiceRepo.findExternalPaidByMovementIds(
+      candidates.map((m) => m._id),
+      periodo,
+      entidad
+    );
+    const excluded = new Set(excludedMovementIds);
+    for (const inv of reserved) excluded.add(String(inv.pagoAsociado.movimientoId));
+
+    return selectPreviousMonthMovements({
+      candidates,
+      currentMovementIds: new Set(bankMovements.map((m) => String(m._id))),
+      excludedMovementIds: excluded,
+      autoInvoiceUuids,
+      previousInvoices
+    });
+  };
+
   const runReconciliationForPeriod = async (periodo, entidad = DEFAULT_ENTIDAD) => {
     await fixLegacyBBVAClassification(periodo, entidad);
 
@@ -205,7 +255,32 @@ const createReconciliationService = ({
     const autoInvoices = workingInvoices.filter(
       (i) => (!i.editadoManualmente || i.estadoPago === 'No Pagada') && !preservedInvoiceUuids.has(i.uuid)
     );
-    const { summary, reconciledInvoices, unmatchedWithdrawals } = reconcile(autoInvoices, availableMovements);
+
+    const unavailableMovementIds = new Set([
+      ...manuallyUsedMovementIds,
+      ...externalReservations.keys(),
+      ...preservedMovementIds
+    ]);
+    const [aliases, previousMonthMovements] = await Promise.all([
+      loadVendorAliases(entidad),
+      loadPreviousMonthMovements({
+        periodo,
+        entidad,
+        bankMovements,
+        excludedMovementIds: unavailableMovementIds,
+        autoInvoiceUuids: new Set(autoInvoices.map((i) => i.uuid))
+      })
+    ]);
+
+    const { summary, reconciledInvoices, unmatchedWithdrawals } = reconcile(
+      autoInvoices,
+      [...availableMovements, ...previousMonthMovements],
+      { aliases }
+    );
+    // reconcile conserva campos de la factura original: el grupo de un pago conjunto previo se recalcula desde cero
+    for (const inv of reconciledInvoices) {
+      if (inv.pagoConjunto) inv.pagoConjunto = null;
+    }
 
     const unpaidAfterReconcile = reconciledInvoices.filter(
       (i) =>
@@ -234,12 +309,14 @@ const createReconciliationService = ({
     const notesByUuid = new Map(availableCreditNotes.map((n) => [n.uuid, n]));
     const withdrawalsById = new Map(unmatchedWithdrawals.map((w) => [String(w._id), w]));
     const newlyMatchedCreditNotes = new Map();
+    const ncUsedMovementIds = new Set();
 
     for (const match of partialAssignments) {
       const inv = reconciledByUuid.get(match.invoiceUuid);
       const nc = notesByUuid.get(match.creditNoteUuid);
       const tx = withdrawalsById.get(String(match.movementId));
       if (!inv || !nc || !tx) continue;
+      ncUsedMovementIds.add(String(tx._id));
 
       inv.estadoPago = 'Pagada';
       inv.editadoManualmente = false;
@@ -282,6 +359,14 @@ const createReconciliationService = ({
       summary.movimientosNoAsociadosCount = Math.max(0, summary.movimientosNoAsociadosCount - 1);
     }
 
+    // Pago conjunto: un retiro libre que liquida exactamente 2 o 3 facturas del mismo proveedor (combinacion unica)
+    const jointAssignments = matchJointPayments({
+      invoices: reconciledInvoices,
+      withdrawals: unmatchedWithdrawals.filter((w) => !ncUsedMovementIds.has(String(w._id))),
+      aliases
+    });
+    applyJointAssignments(reconciledInvoices, jointAssignments, summary);
+
     for (const pInv of preservedInvoices) {
       summary.totalFacturas++;
       summary.pagadasCount++;
@@ -300,6 +385,7 @@ const createReconciliationService = ({
       const egresoChanged = (before?.egresoAsociado?.uuid || null) !== (inv.egresoAsociado?.uuid || null);
       const ingresoChanged = (before?.ingresoAsociado?.uuid || null) !== (inv.ingresoAsociado?.uuid || null);
       const autoNcChanged = (before?.asignacionAutomatica?.tipo || null) !== (inv.asignacionAutomatica?.tipo || null);
+      const jointChanged = jointKey(before) !== jointKey(inv);
 
       if (
         before &&
@@ -308,7 +394,8 @@ const createReconciliationService = ({
         !resetManual &&
         !egresoChanged &&
         !ingresoChanged &&
-        !autoNcChanged
+        !autoNcChanged &&
+        !jointChanged
       ) {
         handledUuids.add(inv.uuid);
         continue;
@@ -319,6 +406,9 @@ const createReconciliationService = ({
         pagoAsociado: inv.pagoAsociado,
         ...(inv.estadoPago === 'Pagada' ? { editadoManualmente: false } : {})
       };
+      if (jointChanged || inv.pagoConjunto) {
+        setFields.pagoConjunto = inv.pagoConjunto || null;
+      }
       if (egresoChanged || inv.egresoAsociado) {
         setFields.egresoAsociado = inv.egresoAsociado || null;
       }
@@ -385,12 +475,13 @@ const createReconciliationService = ({
     }
     for (const inv of reconciledInvoices) {
       if (inv.estadoPago === 'Pagada' && inv.pagoAsociado?.movimientoId) {
-        matchedMovementMap.set(String(inv.pagoAsociado.movimientoId), inv.uuid);
+        // En un pago conjunto el retiro apunta a la primera factura (orden alfabetico de uuid)
+        matchedMovementMap.set(String(inv.pagoAsociado.movimientoId), inv.pagoConjunto?.uuids?.[0] || inv.uuid);
       }
     }
 
     const bulkBankOps = [];
-    for (const bm of bankMovements) {
+    for (const bm of [...bankMovements, ...previousMonthMovements]) {
       const matchedUuid = matchedMovementMap.get(String(bm._id)) || null;
       if (!!bm.conciliado === !!matchedUuid && (bm.facturaUuid || null) === matchedUuid) continue;
       bulkBankOps.push({

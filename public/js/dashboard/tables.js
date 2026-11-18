@@ -157,12 +157,16 @@ function buildPaymentDetailHtml(inv) {
   return '<span style="color:var(--text-muted); font-size:11px;">Sin pago registrado</span>';
 }
 
-export function renderDetailView(els, filtered) {
+/** Solo las facturas de Ingreso No Pagadas se pueden marcar en bloque como pagadas en efectivo */
+export const isBulkSelectable = (inv) =>
+  (inv.efecto || 'Ingreso') === 'Ingreso' && inv.estadoPago === 'No Pagada';
+
+export function renderDetailView(els, filtered, selectedUuids = new Set()) {
   if (els.tableContainerDetail) els.tableContainerDetail.style.display = 'block';
   if (els.tableContainerGrouped) els.tableContainerGrouped.style.display = 'none';
 
   if (filtered.length === 0) {
-    els.invoiceRows.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:24px; color:var(--text-muted);">No se encontraron facturas con el criterio seleccionado.</td></tr>';
+    els.invoiceRows.innerHTML = '<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--text-muted);">No se encontraron facturas con el criterio seleccionado.</td></tr>';
     return;
   }
 
@@ -177,8 +181,13 @@ export function renderDetailView(els, filtered) {
       const safeUuid = escapeHtml(inv.uuid || '');
       const uuidLabel = inv.uuid ? `${escapeHtml(inv.uuid.substring(0, 18))}...` : '-';
 
+      const checkCell = isBulkSelectable(inv)
+        ? `<input type="checkbox" class="row-check" data-action="select-invoice" data-uuid="${safeUuid}" aria-label="Seleccionar factura" ${selectedUuids.has(inv.uuid) ? 'checked' : ''} />`
+        : '';
+
       return `
         <tr>
+          <td style="text-align:center;">${checkCell}</td>
           <td style="text-align:center; font-weight:600; color:var(--text-muted); font-size:11.5px;">${index + 1}</td>
           <td style="font-family:monospace; font-size:11px; word-break:break-all;" title="${safeUuid}">${uuidLabel}</td>
           <td><strong>${escapeHtml(inv.emisor || 'Sin emisor')}</strong></td>

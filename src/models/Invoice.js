@@ -103,6 +103,11 @@ const invoiceSchema = new mongoose.Schema(
       conceptoBanco: String,
       referencia: String
     },
+    // Pago conjunto: un solo retiro liquido varias facturas del mismo proveedor (uuids ordenados y total del retiro)
+    pagoConjunto: {
+      uuids: { type: [String], default: undefined },
+      total: Number
+    },
     // Datos de la Nota de Credito (Egreso) si la factura de Ingreso fue liquidada con un Egreso
     egresoAsociado: {
       uuid: { type: String, trim: true, uppercase: true },

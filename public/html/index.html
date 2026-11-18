@@ -8,12 +8,23 @@
 </head>
 <body class="login-page">
 
+  <!-- Filtro SVG opcional para refraccion Liquid Glass (Chrome/Edge) -->
+  <svg class="svg-filters" aria-hidden="true" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;">
+    <defs>
+      <filter id="liquid-glass" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.012" numOctaves="2" seed="7" result="noise" />
+        <feGaussianBlur in="noise" stdDeviation="2" result="softNoise" />
+        <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="48" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </defs>
+  </svg>
+
   <!-- Contenedor para mensajes / alertas -->
   <div id="toast-container" class="toast-container"></div>
 
   <!-- Vista Principal de Inicio de Sesión -->
   <main class="auth-container">
-    <div class="auth-card">
+    <div class="auth-card glass glass-strong">
       
       <!-- Cabecera simple -->
       <header class="auth-header">

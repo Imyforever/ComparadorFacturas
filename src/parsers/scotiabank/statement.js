@@ -4,6 +4,7 @@
 
 const { MONTH_MAP, resolveYearForMonth } = require('../../utils/dates');
 const { parseAmount, toCents } = require('../../utils/money');
+const { cleanBankConcept } = require('../../utils/text');
 
 const id = 'scotiabank-statement';
 
@@ -85,7 +86,7 @@ const parseScotiabankStatement = (text, defaultYear = '2026') => {
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
-    const conceptFull = lines.join(' ');
+    const conceptFull = cleanBankConcept(lines.join(' '));
 
     const rfcMatch = conceptFull.match(/RFC\s+([A-Z&Ñ]{3,4}\s*[0-9]{6}\s*[A-Z0-9]{3})/i);
     const rfc = rfcMatch ? rfcMatch[1].replace(/\s+/g, '').toUpperCase() : null;

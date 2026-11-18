@@ -8,7 +8,7 @@
 
 const { parseFlexibleDate } = require('../utils/dates');
 const { toCents, fromCents, round2 } = require('../utils/money');
-const { normalizeText, matchVendorName } = require('../utils/text');
+const { normalizeText, matchVendorName, isBankFeeConcept } = require('../utils/text');
 
 const AUTO_NC_TIPO = 'nota-credito-parcial';
 // Coincidencia exacta al centavo (diferencia < 1 centavo)
@@ -48,6 +48,7 @@ const matchPartialCreditNotes = (unpaidInvoices = [], availableCreditNotes = [],
       monto: round2(monto),
       montoCents,
       rfc: (tx.rfcDetectado || '').trim().toUpperCase(),
+      concepto: tx.concepto,
       normConcept: normalizeText(tx.concepto),
       date: tx.fechaNormalizada ? parseFlexibleDate(tx.fechaNormalizada) : parseFlexibleDate(tx.fecha)
     };
@@ -127,6 +128,9 @@ const matchPartialCreditNotes = (unpaidInvoices = [], availableCreditNotes = [],
             (invRfc && info.rfc && info.rfc === invRfc) ||
             (normRfc.length >= 12 && info.normConcept.replace(/\s+/g, '').includes(normRfc));
           const nameMatch = !rfcMatch && matchVendorName(inv.emisor, info.normConcept, true);
+
+          // Una comision del banco no es pago a proveedor salvo que el retiro lo identifique
+          if (isBankFeeConcept(info.concepto) && !rfcMatch && !nameMatch) continue;
 
           if (diff > EXACT_TOLERANCE && info.rfc && invRfc && info.rfc !== invRfc && !rfcMatch && !nameMatch) {
             continue;
@@ -272,6 +276,8 @@ const separateExistingAutoCreditNotes = ({
       !preservedCreditNoteUuids.has(ncUuid) &&
       (!nc.ingresoAsociado?.uuid || nc.ingresoAsociado.uuid === inv.uuid) &&
       Boolean(mov) &&
+      // Asignaciones previas contra comisiones del banco se liberan (caso real: tasa de descuento de terminal)
+      !isBankFeeConcept(mov.concepto) &&
       !manuallyUsedMovementIds.has(movId) &&
       !externalReservations.has(movId) &&
       !preservedMovementIds.has(movId) &&

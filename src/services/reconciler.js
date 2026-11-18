@@ -2,39 +2,53 @@
  * Motor de Conciliacion entre Facturas del SAT y Movimientos Bancarios
  *
  * Estrategia:
- *  1. Se generan los pares (factura, retiro) cuyo importe coincide al centavo, o difiere hasta
- *     MAX_DIFF_CENTS (redondeos/comisiones del banco) SOLO si el RFC o el nombre del proveedor
- *     aparece en el retiro. Asi no se liga una factura a un pago ajeno por centavos.
- *  2. Cada par recibe un puntaje: RFC coincidente > nombre de proveedor coincidente > monto exacto,
- *     con desempate por cercania entre la fecha de emision y la fecha del retiro.
- *  3. Se asignan los pares de mayor a menor puntaje sin reutilizar facturas ni retiros.
+ *  1. Se generan los pares (factura, retiro) cuyo importe coincide al centavo. Con "proveedor identificado"
+ *     (vendorMatch = RFC, nombre o alias aprendido del proveedor en el retiro) tambien se aceptan:
+ *       - hasta MAX_DIFF_CENTS de diferencia (redondeos/comisiones del banco), y
+ *       - redondeo a peso: retiro en pesos cerrados (centavos = 0) con diferencia menor a 1 peso.
+ *     Asi no se liga una factura a un pago ajeno por centavos.
+ *  2. Cada par recibe un puntaje: RFC coincidente > nombre/alias de proveedor > monto (exacto > hasta 4
+ *     centavos > redondeo a peso), con desempate por cercania entre la fecha de emision y la del retiro.
+ *  3. Los retiros marcados con mesAnterior (libres del mes anterior) solo casan con vendorMatch y con
+ *     una penalizacion de puntaje, para que siempre gane un retiro del propio mes.
+ *     Los cargos propios del banco (comisiones de terminal, IVA de comisiones) tambien exigen vendorMatch.
+ *  4. Se asignan los pares de mayor a menor puntaje sin reutilizar facturas ni retiros.
  */
 
 const { parseFlexibleDate } = require('../utils/dates');
 const { toCents, fromCents, round2 } = require('../utils/money');
 const { normalizeText, matchVendorName } = require('../utils/text');
+const { buildConceptInfo, matchVendor } = require('./vendorMatch');
 
 // Diferencia maxima (en centavos) aceptada cuando el retiro identifica al proveedor.
 const MAX_DIFF_CENTS = 4;
+// Redondeo a peso: el retiro es en pesos cerrados y la diferencia es menor a 100 centavos.
+const ROUND_PESO_LIMIT_CENTS = 100;
+const ROUND_PESO_SCORE = 5;
+// Penalizacion de puntaje para retiros libres del mes anterior.
+const MES_ANTERIOR_PENALTY = 150;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Ejecuta la conciliacion entre una lista de facturas y retiros bancarios
  * @param {Array<Object>} invoices - Lista de facturas (CFDI)
  * @param {Array<Object>} bankTransactions - Lista de movimientos bancarios (Retiros)
+ * @param {Object} [options]
+ * @param {number} [options.maxDiffCents] - Diferencia maxima en centavos con proveedor identificado
+ * @param {Map<string, Set<string>>} [options.aliases] - Alias aprendidos (vendorAliases.learnVendorAliases)
  * @returns {Object} Resultado de la conciliacion con facturas actualizadas y resumen
  */
-const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DIFF_CENTS } = {}) => {
+const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DIFF_CENTS, aliases = null } = {}) => {
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
   const withdrawals = (Array.isArray(bankTransactions) ? bankTransactions : []).filter(
     (tx) => tx && tx.tipo === 'Retiro' && Number.isFinite(Number(tx.monto))
   );
 
   const txInfo = withdrawals.map((tx) => ({
+    ...buildConceptInfo(tx),
     monto: Number(tx.monto),
     montoCents: toCents(tx.monto),
-    rfc: (tx.rfcDetectado || '').toUpperCase(),
-    normConcept: normalizeText(tx.concepto),
+    mesAnterior: Boolean(tx.mesAnterior),
     date: tx.fechaNormalizada ? parseFlexibleDate(tx.fechaNormalizada) : parseFlexibleDate(tx.fecha)
   }));
 
@@ -62,11 +76,10 @@ const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DI
       return;
     }
 
-    const invRfc = (inv.rfcEmisor || '').toUpperCase();
-    const normRfc = normalizeText(invRfc).replace(/\s+/g, '');
     const invDate = parseFlexibleDate(inv.fechaEmision);
+    const searchRadius = Math.max(maxDiffCents, ROUND_PESO_LIMIT_CENTS - 1);
 
-    for (let c = totalCents - maxDiffCents; c <= totalCents + maxDiffCents; c++) {
+    for (let c = totalCents - searchRadius; c <= totalCents + searchRadius; c++) {
       const idxs = byCents.get(c);
       if (!idxs) continue;
 
@@ -75,19 +88,23 @@ const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DI
         const diffCents = Math.abs(info.montoCents - totalCents);
         const diff = fromCents(diffCents);
 
-        const rfcMatch =
-          (invRfc && info.rfc && info.rfc === invRfc) ||
-          (normRfc.length >= 12 && info.normConcept.replace(/\s+/g, '').includes(normRfc));
-        const nameMatch = !rfcMatch && matchVendorName(inv.emisor, info.normConcept, true);
+        const withinCents = diffCents <= maxDiffCents;
+        const roundToPeso = !withinCents && info.montoCents % 100 === 0 && diffCents < ROUND_PESO_LIMIT_CENTS;
+        if (!withinCents && !roundToPeso) continue;
 
-        // Con diferencia de centavos solo se acepta si el retiro identifica al proveedor
-        if (diffCents > 0 && !rfcMatch && !nameMatch) continue;
+        const { rfcMatch, vendorMatch } = matchVendor(inv, info, aliases);
+
+        // Los retiros del mes anterior y cualquier diferencia de centavos/redondeo exigen proveedor identificado
+        // Comisiones del banco tampoco: sin proveedor identificado coinciden con facturas chicas por casualidad
+        if ((info.mesAnterior || info.isBankFee || diffCents > 0) && !vendorMatch) continue;
 
         let score = 0;
         if (rfcMatch) score += 1000;
-        else if (nameMatch) score += 500;
+        else if (vendorMatch) score += 500;
         if (diffCents === 0) score += 100;
-        else score += Math.max(0, 50 - diffCents * 10);
+        else if (withinCents) score += Math.max(0, 50 - diffCents * 10);
+        else score += ROUND_PESO_SCORE - diffCents / ROUND_PESO_LIMIT_CENTS;
+        if (info.mesAnterior) score -= MES_ANTERIOR_PENALTY;
 
         if (invDate && info.date) {
           const days = Math.abs(info.date.getTime() - invDate.getTime()) / DAY_MS;
@@ -154,7 +171,9 @@ const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DI
     return { ...inv, estadoPago: 'No Pagada', pagoAsociado: null };
   });
 
-  const unmatchedWithdrawals = withdrawals.filter((_, idx) => !usedTx.has(idx));
+  // Los retiros del mes anterior no cuentan en el resumen del mes ni se devuelven como "sin asociar"
+  const unmatchedWithdrawals = withdrawals.filter((tx, idx) => !usedTx.has(idx) && !tx.mesAnterior);
+  const ownWithdrawalsCount = withdrawals.filter((tx) => !tx.mesAnterior).length;
 
   return {
     summary: {
@@ -166,7 +185,7 @@ const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DI
       montoNoPagado: fromCents(montoNoPagadoCents),
       canceladasCount,
       montoCancelado: fromCents(montoCanceladoCents),
-      movimientosBancariosCount: withdrawals.length,
+      movimientosBancariosCount: ownWithdrawalsCount,
       movimientosNoAsociadosCount: unmatchedWithdrawals.length
     },
     reconciledInvoices,
@@ -176,6 +195,8 @@ const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DI
 
 module.exports = {
   MAX_DIFF_CENTS,
+  ROUND_PESO_LIMIT_CENTS,
+  MES_ANTERIOR_PENALTY,
   reconcile,
   normalizeText,
   matchVendorName

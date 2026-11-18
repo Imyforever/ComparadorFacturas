@@ -171,6 +171,19 @@ const createTabService = ({
 
     await reconciliationService.releaseMovementsLinkedTo(invoiceUuids);
     const affectedScopes = await reconciliationService.releaseInvoicesLinkedToMovements(movementIds);
+    // Movimientos de otros archivos que eran duplicado de los borrados vuelven a contar
+    const freed =
+      typeof bankMovementRepo.releaseDuplicatesOf === 'function'
+        ? await bankMovementRepo.releaseDuplicatesOf(movementIds)
+        : [];
+    if (freed.length > 0) {
+      await reconciliationService.recomputeStatementStats(nombre, Array.from(new Set(freed.map((m) => m.archivoOrigen))));
+      for (const m of freed) {
+        for (const p of [m.periodo, m.archivoPeriodo]) {
+          if (p) affectedScopes.push({ periodo: p, entidad: m.entidad });
+        }
+      }
+    }
     await reconciliationService.runReconciliationForScopes(affectedScopes, [{ periodo, entidad: nombre }]);
 
     return {

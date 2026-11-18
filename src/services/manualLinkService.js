@@ -7,12 +7,16 @@ const defaultInvoiceRepo = require('../repositories/invoiceRepository');
 const defaultBankMovementRepo = require('../repositories/bankMovementRepository');
 const defaultReconciliationService = require('./reconciliationService');
 const defaultEgresoService = require('./egresoService');
+const { createJointGroupReleaser } = require('./jointGroup');
 const { parseFlexibleDate, dateOnly, formatIsoDate } = require('../utils/dates');
 const { diffAmount } = require('../utils/money');
 const { normUuid, isObjectId } = require('../utils/text');
 const { httpError } = require('../utils/errors');
 
 const { DEFAULT_ENTIDAD, readPeriodo, readEntidad } = defaultReconciliationService;
+
+const MAX_BULK_MANUAL_PAID = 500;
+const DEFAULT_BULK_NOTE = 'PAGADO EN EFECTIVO';
 
 const buildPagoFromMovement = (movement, invoiceTotal) => ({
   movimientoId: movement._id,
@@ -31,7 +35,12 @@ const createManualLinkService = ({
   egresoService = defaultEgresoService,
   clock = () => new Date()
 } = {}) => {
+  const { releaseJointGroup } = createJointGroupReleaser({ invoiceRepo, bankMovementRepo });
+
   const applyManualMovementLink = async (invoice, movement) => {
+    // Si la factura era parte de un pago conjunto, el grupo entero se libera
+    await releaseJointGroup(invoice);
+
     if (invoice.pagoAsociado?.movimientoId && String(invoice.pagoAsociado.movimientoId) !== String(movement._id)) {
       await bankMovementRepo.releaseById(invoice.pagoAsociado.movimientoId);
     }
@@ -114,6 +123,8 @@ const createManualLinkService = ({
     }
 
     if (targetInvoice) {
+      // Pago conjunto: liberar el retiro implica liberar el grupo entero de facturas
+      await releaseJointGroup(targetInvoice);
       if (
         targetInvoice.egresoAsociado?.uuid &&
         (!targetInvoice.pagoAsociado?.movimientoId || targetInvoice.asignacionAutomatica?.tipo === 'nota-credito-parcial')
@@ -241,6 +252,11 @@ const createManualLinkService = ({
       throw httpError(404, 'Factura no encontrada.');
     }
 
+    // Editar a mano una factura de un pago conjunto libera el grupo entero (retiro y demas facturas)
+    const changesPayment = Boolean(resetAuto || desvincularPago || movimientoId || pagoManual || estadoPago);
+    const jointMovementId = invoice.pagoConjunto?.uuids?.length ? invoice.pagoAsociado?.movimientoId : null;
+    if (changesPayment) await releaseJointGroup(invoice);
+
     if (resetAuto) {
       if (invoice.pagoAsociado?.movimientoId) {
         await bankMovementRepo.releaseById(invoice.pagoAsociado.movimientoId);
@@ -312,8 +328,51 @@ const createManualLinkService = ({
       invoice.observaciones = observaciones;
     }
 
+    // Marcada como pagada a mano sin cambiar de retiro: ya no es parte del pago conjunto, su pago no es el retiro
+    if (
+      jointMovementId &&
+      invoice.estadoPago === 'Pagada' &&
+      String(invoice.pagoAsociado?.movimientoId || '') === String(jointMovementId)
+    ) {
+      invoice.pagoAsociado = null;
+    }
+
     await invoiceRepo.save(invoice);
     return { resetAuto: false, invoice };
+  };
+
+  /**
+   * Marca como pagadas en efectivo varias facturas de Ingreso No Pagada (igual que la edicion manual
+   * PATCH /invoice/:uuid con estadoPago 'Pagada'). Ignora las que no sean Ingreso No Pagada.
+   */
+  const bulkMarkPaidManual = async ({ uuids, nota } = {}) => {
+    if (!Array.isArray(uuids) || uuids.length === 0) {
+      throw httpError(400, 'Debe especificar la lista de uuids de las facturas.');
+    }
+    if (uuids.length > MAX_BULK_MANUAL_PAID) {
+      throw httpError(400, `Solo se permiten ${MAX_BULK_MANUAL_PAID} facturas por solicitud.`);
+    }
+    if (nota !== undefined && nota !== null && typeof nota !== 'string') {
+      throw httpError(400, 'La nota debe ser texto.');
+    }
+
+    const observaciones = (typeof nota === 'string' && nota.trim()) || DEFAULT_BULK_NOTE;
+    const cleanUuids = Array.from(new Set(uuids.filter((u) => typeof u === 'string').map(normUuid).filter(Boolean)));
+
+    let actualizadas = 0;
+    for (const uuid of cleanUuids) {
+      const invoice = await invoiceRepo.findByUuid(uuid);
+      if (!invoice || (invoice.efecto || 'Ingreso') !== 'Ingreso') continue;
+      if (invoice.estadoPago !== 'No Pagada' || invoice.estadoSat === 'Cancelado') continue;
+      await updateInvoice(uuid, {
+        estadoPago: 'Pagada',
+        observaciones,
+        // pagoAsociado debe quedar en null aunque hubiera un resto de un retiro ya liberado
+        desvincularPago: Boolean(invoice.pagoAsociado?.movimientoId)
+      });
+      actualizadas++;
+    }
+    return { actualizadas };
   };
 
   return {
@@ -322,13 +381,15 @@ const createManualLinkService = ({
     unlinkManual,
     updateBankMovement,
     createManualInvoice,
-    updateInvoice
+    updateInvoice,
+    bulkMarkPaidManual
   };
 };
 
 const defaultService = createManualLinkService();
 
 module.exports = {
+  MAX_BULK_MANUAL_PAID,
   buildPagoFromMovement,
   createManualLinkService,
   ...defaultService

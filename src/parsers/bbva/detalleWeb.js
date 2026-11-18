@@ -3,6 +3,7 @@
  */
 
 const { toCents } = require('../../utils/money');
+const { cleanBankConcept } = require('../../utils/text');
 const { classifyBBVAMovementIsRetiro } = require('./classify');
 
 const id = 'bbva-detalle-web';
@@ -92,13 +93,10 @@ const parseBBVADetalleMovimientos = (text, defaultYear = '2026') => {
       const periodo = `${detectedYear}-${b.mes}`;
       detectedPeriodsSet.add(periodo);
 
-      const rfcM = fullConcept.match(rfcRegex);
-      const rfc = rfcM ? `${rfcM[1]}${rfcM[2]}${rfcM[3]}`.toUpperCase() : null;
+      const cleanConcept = cleanBankConcept(fullConcept.replace(/\$\s*[0-9,]+\.[0-9]{2}/g, ''));
 
-      const cleanConcept = fullConcept
-        .replace(/\$\s*[0-9,]+\.[0-9]{2}/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+      const rfcM = cleanConcept.match(rfcRegex);
+      const rfc = rfcM ? `${rfcM[1]}${rfcM[2]}${rfcM[3]}`.toUpperCase() : null;
 
       movements.push({
         banco: 'BBVA',

@@ -3,6 +3,8 @@
  */
 
 export const state = {
+  // Facturas No Pagadas seleccionadas para marcarlas en bloque como pagadas en efectivo
+  selectedUuids: new Set(),
   currentPeriodo: '2026-09',
   currentEntidad: 'Personal',
   cachedTabs: [],

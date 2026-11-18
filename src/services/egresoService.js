@@ -5,6 +5,7 @@
 const defaultInvoiceRepo = require('../repositories/invoiceRepository');
 const defaultBankMovementRepo = require('../repositories/bankMovementRepository');
 const { readPeriodo } = require('./reconciliationService');
+const { createJointGroupReleaser } = require('./jointGroup');
 const { dateOnly } = require('../utils/dates');
 const { toCents, diffAmount } = require('../utils/money');
 const { normUuid } = require('../utils/text');
@@ -17,6 +18,8 @@ const createEgresoService = ({
   bankMovementRepo = defaultBankMovementRepo,
   clock = () => new Date()
 } = {}) => {
+  const { releaseJointGroup } = createJointGroupReleaser({ invoiceRepo, bankMovementRepo });
+
   const releaseEgreso = async (egresoUuid) => {
     if (!egresoUuid) return;
     const egreso = await invoiceRepo.findByUuid(egresoUuid);
@@ -67,6 +70,9 @@ const createEgresoService = ({
     if (ingreso.efecto === 'Egreso') {
       throw httpError(400, 'Una Nota de Crédito no puede amortizarse con otra Nota de Crédito.');
     }
+
+    // Si la factura era parte de un pago conjunto, el grupo entero se libera
+    await releaseJointGroup(ingreso);
 
     if (ingreso.pagoAsociado?.movimientoId) {
       await bankMovementRepo.releaseById(ingreso.pagoAsociado.movimientoId);

@@ -8,6 +8,7 @@ const defaultBankStatementRepo = require('../repositories/bankStatementRepositor
 const defaultReconciliationService = require('./reconciliationService');
 const { parseCfdiReport } = require('../parsers/sat/cfdiReport');
 const { parseBankStatement } = require('../parsers/registry');
+const { findDuplicatesOfExisting } = require('./duplicateDetector');
 const { toCents, fromCents } = require('../utils/money');
 const { computeHuellas, isObjectId } = require('../utils/text');
 const { httpError } = require('../utils/errors');
@@ -125,6 +126,27 @@ const createUploadService = ({
     };
   };
 
+  /** Libera los movimientos que eran duplicado de ids que ya no existen y devuelve los meses afectados */
+  const releaseDuplicatesOfMovements = async (entidad, movementIds) => {
+    if (typeof bankMovementRepo.releaseDuplicatesOf !== 'function' || !movementIds || movementIds.length === 0) {
+      return [];
+    }
+    const freed = await bankMovementRepo.releaseDuplicatesOf(movementIds);
+    const scopes = new Map();
+    for (const m of freed) {
+      for (const p of [m.periodo, m.archivoPeriodo]) {
+        if (p) scopes.set(`${p}|${m.entidad}`, { periodo: p, entidad: m.entidad });
+      }
+    }
+    if (freed.length > 0 && typeof reconciliationService.recomputeStatementStats === 'function') {
+      await reconciliationService.recomputeStatementStats(
+        entidad,
+        Array.from(new Set(freed.map((m) => m.archivoOrigen)))
+      );
+    }
+    return Array.from(scopes.values());
+  };
+
   const uploadBankStatements = async ({ files, periodo: rawPeriodo, entidad: rawEntidad }) => {
     if (!files || files.length === 0) {
       throw httpError(400, 'Debe adjuntar al menos un estado de cuenta.');
@@ -133,6 +155,7 @@ const createUploadService = ({
     const targetPeriodo = readPeriodo(rawPeriodo);
     const entidad = readEntidad(rawEntidad);
     let totalMovements = 0;
+    let duplicatesCount = 0;
     const uploadedResults = [];
 
     for (const file of files) {
@@ -176,6 +199,16 @@ const createUploadService = ({
       oldMovs.forEach((m, idx) => oldByHuella.set(m.huella || oldHuellas[idx], m));
 
       const newHuellas = computeHuellas(movements);
+
+      // Movimientos que ya existen en OTRO archivo de la entidad y cuenta: se guardan como duplicadoDe
+      const candidates =
+        typeof bankMovementRepo.findDuplicateCandidates === 'function'
+          ? await bankMovementRepo.findDuplicateCandidates(entidad, fileName, [
+              ...new Set(movements.map((m) => m.fecha))
+            ])
+          : [];
+      const duplicateOf = findDuplicatesOfExisting(movements, candidates);
+
       const preservedIds = new Set();
       const docsToInsert = movements.map((mv, idx) => {
         const huella = newHuellas[idx];
@@ -191,8 +224,12 @@ const createUploadService = ({
             doc.facturaUuid = previous.facturaUuid || null;
           }
         }
+        // Un movimiento ya ligado a una factura no se marca como duplicado (no se le quita su pago)
+        if (duplicateOf[idx] && !(doc.conciliado || doc.facturaUuid)) doc.duplicadoDe = duplicateOf[idx];
         return doc;
       });
+      const ownMovements = movements.filter((_, idx) => !docsToInsert[idx].duplicadoDe);
+      duplicatesCount += movements.length - ownMovements.length;
 
       for (const m of oldMovs) {
         if (!preservedIds.has(String(m._id))) removedMovementIds.push(m._id);
@@ -201,11 +238,12 @@ const createUploadService = ({
       await bankMovementRepo.deleteByOwner(entidad, fileName);
       if (docsToInsert.length > 0) {
         await bankMovementRepo.insertMany(docsToInsert);
-        totalMovements += docsToInsert.length;
+        totalMovements += ownMovements.length;
       }
 
-      const retiros = movements.filter((m) => m.tipo === 'Retiro');
-      const depositos = movements.filter((m) => m.tipo === 'Deposito');
+      // Las estadisticas del archivo no cuentan los duplicados de otros archivos
+      const retiros = ownMovements.filter((m) => m.tipo === 'Retiro');
+      const depositos = ownMovements.filter((m) => m.tipo === 'Deposito');
       const totalCargos = fromCents(retiros.reduce((s, m) => s + toCents(m.monto), 0));
       const totalAbonos = fromCents(depositos.reduce((s, m) => s + toCents(m.monto), 0));
       const bancoDetectado = item.banco || movements[0]?.banco || 'Banco';
@@ -217,7 +255,7 @@ const createUploadService = ({
         nombreArchivo: fileName,
         banco: bancoDetectado,
         cuenta: cuentaDetectada,
-        totalMovimientos: movements.length,
+        totalMovimientos: ownMovements.length,
         cargosCount: retiros.length,
         abonosCount: depositos.length,
         montoCargos: totalCargos,
@@ -226,17 +264,22 @@ const createUploadService = ({
       });
     }
 
-    const affectedScopes = await reconciliationService.releaseInvoicesLinkedToMovements(removedMovementIds);
+    const releasedScopes = await reconciliationService.releaseInvoicesLinkedToMovements(removedMovementIds);
+    const freedScopes = await releaseDuplicatesOfMovements(entidad, removedMovementIds);
+    const affectedScopes = [...releasedScopes, ...freedScopes];
 
     const { summary } = await reconciliationService.runReconciliationForPeriod(targetPeriodo, entidad);
     await reconciliationService.runReconciliationForScopes(affectedScopes, [{ periodo: targetPeriodo, entidad }]);
 
     const bankStatements = await bankStatementRepo.findByPeriodAndEntity(targetPeriodo, entidad);
+    const duplicatesMsg =
+      duplicatesCount > 0 ? ` Se omitieron ${duplicatesCount} movimientos que ya existian en otro archivo.` : '';
 
     return {
       success: true,
-      message: `Se procesaron exitosamente ${files.length} estado(s) de cuenta para "${entidad}" con ${totalMovements} movimientos bancarios. Conciliacion actualizada.`,
+      message: `Se procesaron exitosamente ${files.length} estado(s) de cuenta para "${entidad}" con ${totalMovements} movimientos bancarios.${duplicatesMsg} Conciliacion actualizada.`,
       totalMovements,
+      ...(duplicatesCount > 0 ? { duplicados: duplicatesCount } : {}),
       entidad,
       bankStatements,
       summary
@@ -264,7 +307,9 @@ const createUploadService = ({
     await bankStatementRepo.deleteById(fileDoc._id);
     const deletedMvs = await bankMovementRepo.deleteByFile(targetEntidad, nombreArchivo, scopePeriodo);
 
-    const affectedScopes = await reconciliationService.releaseInvoicesLinkedToMovements(movementIds);
+    const releasedScopes = await reconciliationService.releaseInvoicesLinkedToMovements(movementIds);
+    const freedScopes = await releaseDuplicatesOfMovements(targetEntidad, movementIds);
+    const affectedScopes = [...releasedScopes, ...freedScopes];
 
     const { summary } = await reconciliationService.runReconciliationForPeriod(periodo, targetEntidad);
     await reconciliationService.runReconciliationForScopes(affectedScopes, [{ periodo, entidad: targetEntidad }]);

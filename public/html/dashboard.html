@@ -10,11 +10,22 @@
 
 <body class="dashboard-body">
 
+  <!-- Filtro SVG opcional para refraccion Liquid Glass (Chrome/Edge) -->
+  <svg class="svg-filters" aria-hidden="true" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;">
+    <defs>
+      <filter id="liquid-glass" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.012 0.012" numOctaves="2" seed="7" result="noise" />
+        <feGaussianBlur in="noise" stdDeviation="2" result="softNoise" />
+        <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="48" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </defs>
+  </svg>
+
   <div class="dashboard-container">
-    <div class="auth-card" style="max-width: 100%;">
+    <div class="dashboard-shell" style="max-width: 100%;">
 
       <!-- Barra Superior -->
-      <div class="dash-topbar">
+      <div class="dash-topbar glass">
         <div class="topbar-header">
           <h1>Conciliación de Facturas</h1>
           <span>Usuario: <strong id="user-name">admin</strong></span>
@@ -29,7 +40,7 @@
       </div>
 
       <!-- Barra de Pestanias / Cuentas por Mes -->
-      <div class="entity-tabs-panel">
+      <div class="entity-tabs-panel glass">
         <div class="entity-tabs-wrapper">
           <div class="entity-tabs-list" id="entity-tabs-list">
             <!-- Pestanias cargadas dinamicamente -->
@@ -43,7 +54,7 @@
       </div>
 
       <!-- 1. Cargar Facturas SAT -->
-      <div class="cfdi-upload-panel">
+      <div class="cfdi-upload-panel glass">
         <div class="panel-header">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
@@ -68,7 +79,7 @@
       </div>
 
       <!-- 2. Estados de Cuenta Bancarios -->
-      <div class="bank-statements-panel" id="bank-statements-section">
+      <div class="bank-statements-panel glass" id="bank-statements-section">
         <div class="panel-header">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0 0 2px 0;">
@@ -96,37 +107,37 @@
 
       <!-- Tarjetas de Resumen Financiero -->
       <div class="summary-grid">
-        <div class="summary-box box-total">
+        <div class="summary-box glass box-total">
           <div class="summary-title">Total Facturado</div>
           <div id="stat-total-amount" class="summary-amount">$0.00</div>
           <div id="stat-total-count" class="summary-count">0 facturas</div>
         </div>
 
-        <div class="summary-box box-small-invoices">
+        <div class="summary-box glass box-small-invoices">
           <div class="summary-title" style="color:#6366f1;">Menores a $100</div>
           <div id="stat-small-amount" class="summary-amount" style="color:#6366f1;">$0.00</div>
           <div id="stat-small-count" class="summary-count">0 menores a $100</div>
         </div>
 
-        <div class="summary-box box-paid">
+        <div class="summary-box glass box-paid">
           <div class="summary-title" style="color:var(--primary);">Pagadas</div>
           <div id="stat-paid-amount" class="summary-amount" style="color:var(--primary);">$0.00</div>
           <div id="stat-paid-count" class="summary-count">0 pagadas</div>
         </div>
 
-        <div class="summary-box box-unpaid">
+        <div class="summary-box glass box-unpaid">
           <div class="summary-title" style="color:var(--error);">No Pagadas</div>
           <div id="stat-unpaid-amount" class="summary-amount" style="color:var(--error);">$0.00</div>
           <div id="stat-unpaid-count" class="summary-count">0 pendientes</div>
         </div>
 
-        <div class="summary-box box-canceled">
+        <div class="summary-box glass box-canceled">
           <div class="summary-title">Canceladas</div>
           <div id="stat-canceled-amount" class="summary-amount" style="color:var(--text-muted);">$0.00</div>
           <div id="stat-canceled-count" class="summary-count">0 canceladas</div>
         </div>
 
-        <div class="summary-box box-unmatched-bank" id="box-unmatched-bank" onclick="scrollToUnmatchedSection()" title="Ver pagos bancarios sin factura SAT">
+        <div class="summary-box glass box-unmatched-bank" id="box-unmatched-bank" onclick="scrollToUnmatchedSection()" title="Ver pagos bancarios sin factura SAT">
           <div class="summary-title" style="color:#b45309;">Sin Factura SAT</div>
           <div id="stat-unmatched-amount" class="summary-amount" style="color:#b45309;">$0.00</div>
           <div id="stat-unmatched-count" class="summary-count">0 movimientos</div>
@@ -134,7 +145,7 @@
       </div>
 
       <!-- Apartado: Asignadas automaticamente con nota de credito -->
-      <div class="auto-nc-panel" id="auto-nc-section">
+      <div class="auto-nc-panel glass" id="auto-nc-section">
         <div class="panel-header" style="margin-bottom: 8px;">
           <div>
             <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0;">
@@ -145,7 +156,7 @@
             </span>
           </div>
         </div>
-        <div class="table-container" id="auto-nc-table-wrapper">
+        <div class="table-container glass glass-strong" id="auto-nc-table-wrapper">
           <table class="table-excel">
             <thead>
               <tr>
@@ -179,11 +190,14 @@
         </div>
 
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button type="button" id="btn-bulk-cash" class="btn-action" style="display: none; font-weight: 600;" title="Marcar las facturas seleccionadas como pagadas en efectivo">
+            Marcar pagadas en efectivo (<span id="bulk-cash-count">0</span>)
+          </button>
           <button type="button" id="btn-refresh-reconciliation" class="btn-action" title="Actualizar datos y conciliación" onclick="triggerRefreshReconciliation()" style="font-weight: 600;">
             Actualizar
           </button>
           <!-- Alternador de Vista: Detallada vs Agrupada por Emisor -->
-          <div class="view-mode-toggle">
+          <div class="view-mode-toggle glass">
             <button type="button" class="view-mode-btn active" id="btn-view-detail" title="Ver facturas">
               Detalle
             </button>
@@ -195,7 +209,7 @@
       </div>
 
       <!-- Filtro por Campo -->
-      <div class="field-filter-panel">
+      <div class="field-filter-panel glass">
         <div class="field-filter-grid">
           <div class="field-filter-item">
             <label for="filter-field-select" class="field-filter-label">Campo:</label>
@@ -241,7 +255,7 @@
       </div>
 
       <!-- Indicador Informativo de Filtro Activo -->
-      <div id="active-filter-indicator" class="active-filter-banner" style="display: none;">
+      <div id="active-filter-indicator" class="active-filter-banner glass" style="display: none;">
         <div class="active-filter-text">
           <span class="active-filter-tag">Filtro</span>
           <span class="active-filter-field" id="indicator-field">Emisor</span>:
@@ -252,10 +266,13 @@
       </div>
 
       <!-- Tabla 1: Vista Detallada de Facturas -->
-      <div class="table-container" id="table-container-detail">
+      <div class="table-container glass glass-strong" id="table-container-detail">
         <table class="table-excel">
           <thead>
             <tr>
+              <th style="width: 34px; text-align: center;">
+                <input type="checkbox" id="chk-select-all-unpaid" class="row-check" title="Seleccionar todas las No Pagadas visibles" aria-label="Seleccionar todas las facturas no pagadas visibles" />
+              </th>
               <th style="width: 45px; text-align: center;">No.</th>
               <th style="width: 140px;">Folio (UUID)</th>
               <th>Proveedor</th>
@@ -271,7 +288,7 @@
           </thead>
           <tbody id="invoice-rows">
             <tr>
-              <td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">
+              <td colspan="12" style="text-align: center; padding: 24px; color: var(--text-muted);">
                 Cargando datos...
               </td>
             </tr>
@@ -280,7 +297,7 @@
       </div>
 
       <!-- Tabla 2: Vista Agrupada por Emisor -->
-      <div class="table-container" id="table-container-grouped" style="display: none;">
+      <div class="table-container glass glass-strong" id="table-container-grouped" style="display: none;">
         <table class="table-excel">
           <thead>
             <tr>
@@ -312,7 +329,7 @@
       </div>
 
       <!-- 3. Pagos Bancarios sin Factura SAT -->
-      <div class="unmatched-bank-panel" id="unmatched-bank-section">
+      <div class="unmatched-bank-panel glass" id="unmatched-bank-section">
         <div class="panel-header">
           <div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -341,7 +358,7 @@
           </div>
         </div>
 
-        <div id="unmatched-table-wrapper" class="table-container" style="margin-top: 10px;">
+        <div id="unmatched-table-wrapper" class="table-container glass glass-strong" style="margin-top: 10px;">
           <table class="table-excel">
             <thead>
               <tr>
@@ -370,7 +387,7 @@
 
   <!-- Modal para Editar / Vincular Factura -->
   <div id="edit-invoice-modal" class="modal-backdrop hidden">
-    <div class="modal-card" style="max-width: 580px;">
+    <div class="modal-card glass glass-strong" style="max-width: 580px;">
       <div class="modal-header">
         <h3 id="modal-edit-title">Factura y Pago</h3>
         <button type="button" class="btn-close-modal" onclick="closeEditModal()">&times;</button>
@@ -492,7 +509,7 @@
 
   <!-- Modal para Crear Nueva Pestaña -->
   <div id="create-tab-modal" class="modal-backdrop hidden">
-    <div class="modal-card" style="max-width: 440px;">
+    <div class="modal-card glass glass-strong" style="max-width: 440px;">
       <div class="modal-header">
         <h3>Nueva Pestaña</h3>
         <button type="button" class="btn-close-modal" onclick="closeCreateTabModal()">&times;</button>
@@ -518,7 +535,7 @@
 
   <!-- Modal para Renombrar Pestaña -->
   <div id="rename-tab-modal" class="modal-backdrop hidden">
-    <div class="modal-card" style="max-width: 440px;">
+    <div class="modal-card glass glass-strong" style="max-width: 440px;">
       <div class="modal-header">
         <h3>Renombrar Pestaña</h3>
         <button type="button" class="btn-close-modal" onclick="closeRenameTabModal()">&times;</button>
@@ -544,7 +561,7 @@
 
   <!-- Modal para Vincular Pago Bancario -->
   <div id="compare-manual-modal" class="modal-backdrop hidden">
-    <div class="modal-card compare-modal-card">
+    <div class="modal-card glass glass-strong compare-modal-card">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
           <h3 style="margin: 0;">Vincular Pago Bancario</h3>

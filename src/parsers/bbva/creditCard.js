@@ -3,6 +3,7 @@
  */
 
 const { NUM_TO_MONTH_MAP } = require('../../utils/dates');
+const { cleanBankConcept } = require('../../utils/text');
 
 const id = 'bbva-credit-card';
 
@@ -170,7 +171,7 @@ const parseBBVACreditOrCardStatement = (text, defaultYear = '2026') => {
       monto: finalAmount,
       saldo: 0,
       rfcDetectado: rfc,
-      concepto: (concepto || rest).substring(0, 250),
+      concepto: cleanBankConcept(concepto || rest).substring(0, 250),
       origenReferencia: referencia,
       conciliado: false
     });

@@ -3,6 +3,7 @@
  */
 
 const { MONTH_MAP, resolveYearForMonth } = require('../../utils/dates');
+const { cleanBankConcept } = require('../../utils/text');
 const { classifyBBVAMovementIsRetiro } = require('./classify');
 
 const id = 'bbva-statement';
@@ -106,7 +107,7 @@ const parseBBVAStatement = (text, defaultYear = '2026') => {
   const detectedPeriodsSet = new Set();
   const transactions = rawTransactions.map((tx) => {
     detectedPeriodsSet.add(tx.periodo);
-    const fullConcept = [tx.code, tx.desc, ...tx.details].filter(Boolean).join(' ');
+    const fullConcept = cleanBankConcept([tx.code, tx.desc, ...tx.details].filter(Boolean).join(' '));
 
     const isRetiro = classifyBBVAMovementIsRetiro(fullConcept, tx.code);
 
