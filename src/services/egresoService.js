@@ -84,6 +84,7 @@ const createEgresoService = ({
     ingreso.estadoPago = 'Pagada';
     ingreso.editadoManualmente = true;
     ingreso.fechaEdicionManual = now;
+    ingreso.asignacionAutomatica = null;
     ingreso.egresoAsociado = {
       uuid: egreso.uuid,
       total: egreso.total,
@@ -150,8 +151,15 @@ const createEgresoService = ({
 
     if (targetIngreso) {
       const linkedEgresoUuid = targetEgreso?.uuid || targetIngreso.egresoAsociado?.uuid;
+      const wasAutoPartialNc = targetIngreso.asignacionAutomatica?.tipo === 'nota-credito-parcial';
       targetIngreso.egresoAsociado = null;
-      if (
+      targetIngreso.asignacionAutomatica = null;
+      if (wasAutoPartialNc && targetIngreso.pagoAsociado?.movimientoId) {
+        await bankMovementRepo.releaseById(targetIngreso.pagoAsociado.movimientoId);
+        targetIngreso.pagoAsociado = null;
+        targetIngreso.estadoPago = 'No Pagada';
+        targetIngreso.editadoManualmente = false;
+      } else if (
         !targetIngreso.pagoAsociado?.movimientoId &&
         (targetIngreso.pagoAsociado?.banco?.includes('Nota de Crédito') ||
           (linkedEgresoUuid && targetIngreso.pagoAsociado?.referencia === linkedEgresoUuid))

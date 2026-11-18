@@ -11,6 +11,7 @@ export const state = {
   currentViewMode: 'detail',
   cachedInvoices: [],
   cachedUnmatchedMovements: [],
+  cachedAutoNcAssignments: [],
   activeEditingUuid: null,
   activeRenamingTab: null,
   activeCompareMovement: null,

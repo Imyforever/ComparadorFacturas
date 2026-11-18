@@ -2,7 +2,7 @@
  * Motor de Conciliacion entre Facturas del SAT y Movimientos Bancarios
  *
  * Estrategia:
- *  1. Se generan todos los pares (factura, retiro) cuyo importe coincide (tolerancia de 5 centavos).
+ *  1. Se generan todos los pares (factura, retiro) cuyo importe coincide exactamente (al centavo).
  *  2. Cada par recibe un puntaje: RFC coincidente > nombre de proveedor coincidente > monto exacto,
  *     con desempate por cercania entre la fecha de emision y la fecha del retiro.
  *  3. Se asignan los pares de mayor a menor puntaje sin reutilizar facturas ni retiros.
@@ -12,7 +12,8 @@ const { parseFlexibleDate } = require('../utils/dates');
 const { toCents, fromCents, round2 } = require('../utils/money');
 const { normalizeText, matchVendorName } = require('../utils/text');
 
-const AMOUNT_TOLERANCE = 0.05;
+// Coincidencia exacta al centavo: toleranceCents = 1 y se descarta toda diferencia >= 1 centavo
+const AMOUNT_TOLERANCE = 0.01;
 const EXACT_TOLERANCE = 0.005;
 const DAY_MS = 24 * 60 * 60 * 1000;
 

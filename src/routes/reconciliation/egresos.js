@@ -4,6 +4,7 @@
 
 const express = require('express');
 const egresoService = require('../../services/egresoService');
+const reconciliationService = require('../../services/reconciliationService');
 const { sendError } = require('../../middleware/errorHandler');
 
 const router = express.Router();
@@ -52,6 +53,20 @@ router.post('/auto-link-egresos', async (req, res) => {
       success: true,
       linkedCount,
       message: `Se asociaron exitosamente ${linkedCount} facturas con sus Notas de Crédito correspondientes.`
+    });
+  } catch (err) {
+    return sendError(res, err);
+  }
+});
+
+router.post('/undo-auto-nc', async (req, res) => {
+  try {
+    const { invoice } = await reconciliationService.undoAutoCreditNote({
+      uuid: req.body?.uuid || req.body?.invoiceUuid
+    });
+    return res.json({
+      success: true,
+      message: `Asignación automática con nota de crédito deshecha para la factura ${invoice.uuid.substring(0, 8)}...`
     });
   } catch (err) {
     return sendError(res, err);

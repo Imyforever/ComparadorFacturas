@@ -390,3 +390,253 @@ test('conciliacion por periodo: al desenlazar se libera el movimiento y queda di
   assert.equal(movStore[0].conciliado, false);
   assert.equal(movStore[0].facturaUuid, null);
 });
+
+test('reconciliationService con repos falsos: asigna nota de credito parcial y es estable en segunda corrida', async () => {
+  const fixedDate = new Date('2026-09-15T12:00:00Z');
+  const movId = '507f1f77bcf86cd799439055';
+
+  const { invStore, movStore, invoiceRepo, bankMovementRepo, bankStatementRepo } = createInMemoryRepos({
+    invoices: [
+      {
+        uuid: 'INV-100',
+        periodo: '2026-09',
+        entidad: 'Personal',
+        emisor: 'Proveedor Parcial SA',
+        rfcEmisor: 'PPA010101AAA',
+        fechaEmision: '2026-09-05',
+        total: 100,
+        estadoSat: 'Vigente',
+        efecto: 'Ingreso',
+        estadoPago: 'No Pagada',
+        editadoManualmente: false,
+        pagoAsociado: null,
+        egresoAsociado: null
+      },
+      {
+        uuid: 'NC-10',
+        periodo: '2026-09',
+        entidad: 'Personal',
+        emisor: 'Proveedor Parcial SA',
+        rfcEmisor: 'PPA010101AAA',
+        fechaEmision: '2026-09-06',
+        total: 10,
+        estadoSat: 'Vigente',
+        efecto: 'Egreso',
+        estadoPago: 'No Aplica',
+        editadoManualmente: false,
+        ingresoAsociado: null
+      }
+    ],
+    movements: [
+      {
+        _id: movId,
+        periodo: '2026-09',
+        entidad: 'Personal',
+        tipo: 'Retiro',
+        monto: 90,
+        fecha: '07-SEP-2026',
+        concepto: 'SPEI PROVEEDOR PARCIAL PPA010101AAA',
+        origenReferencia: 'REF-90',
+        banco: 'BBVA',
+        conciliado: false,
+        facturaUuid: null
+      }
+    ]
+  });
+
+  const accountTabRepo = { findFirstByPeriodo: async () => ({ nombre: 'Personal' }) };
+  const reconService = createReconciliationService({
+    invoiceRepo,
+    bankMovementRepo,
+    bankStatementRepo,
+    accountTabRepo,
+    clock: () => fixedDate
+  });
+
+  // 1a corrida: debe asignar automaticamente INV-100 con NC-10 y MOV-90
+  await reconService.runReconciliationForPeriod('2026-09', 'Personal');
+
+  const invAfter1 = invStore.find((i) => i.uuid === 'INV-100');
+  const ncAfter1 = invStore.find((i) => i.uuid === 'NC-10');
+  const movAfter1 = movStore.find((m) => m._id === movId);
+
+  assert.equal(invAfter1.estadoPago, 'Pagada');
+  assert.equal(invAfter1.editadoManualmente, false);
+  assert.equal(invAfter1.egresoAsociado.uuid, 'NC-10');
+  assert.equal(invAfter1.egresoAsociado.total, 10);
+  assert.equal(invAfter1.pagoAsociado.movimientoId, movId);
+  assert.equal(invAfter1.pagoAsociado.montoRetiro, 90);
+  assert.equal(invAfter1.pagoAsociado.diferencia, 0);
+  assert.equal(invAfter1.pagoAsociado.conceptoBanco, 'SPEI PROVEEDOR PARCIAL PPA010101AAA');
+  assert.equal(invAfter1.pagoAsociado.referencia, 'REF-90');
+  assert.deepEqual(invAfter1.asignacionAutomatica, {
+    tipo: 'nota-credito-parcial',
+    fecha: fixedDate
+  });
+
+  assert.equal(ncAfter1.ingresoAsociado.uuid, 'INV-100');
+  assert.equal(ncAfter1.ingresoAsociado.total, 100);
+  assert.equal(movAfter1.conciliado, true);
+  assert.equal(movAfter1.facturaUuid, 'INV-100');
+
+  // 2a corrida: estable, no deshace ni duplica
+  const laterDate = new Date('2026-09-20T12:00:00Z');
+  const reconService2 = createReconciliationService({
+    invoiceRepo,
+    bankMovementRepo,
+    bankStatementRepo,
+    accountTabRepo,
+    clock: () => laterDate
+  });
+  await reconService2.runReconciliationForPeriod('2026-09', 'Personal');
+
+  const invAfter2 = invStore.find((i) => i.uuid === 'INV-100');
+  assert.equal(invAfter2.estadoPago, 'Pagada');
+  assert.equal(invAfter2.egresoAsociado.uuid, 'NC-10');
+  assert.equal(invAfter2.pagoAsociado.movimientoId, movId);
+  assert.equal(invAfter2.asignacionAutomatica.fecha, fixedDate);
+
+  const periodData = await reconService2.getPeriodData({ periodo: '2026-09', entidad: 'Personal' });
+  assert.equal(periodData.autoCreditNoteAssignments.length, 1);
+  assert.equal(periodData.autoCreditNoteAssignments[0].invoiceUuid, 'INV-100');
+  assert.equal(periodData.autoCreditNoteAssignments[0].creditNoteUuid, 'NC-10');
+  assert.equal(periodData.autoCreditNoteAssignments[0].montoNota, 10);
+  assert.equal(periodData.autoCreditNoteAssignments[0].montoRetiro, 90);
+});
+
+test('reconciliationService con repos falsos: libera la asignacion si desaparece el retiro', async () => {
+  const movId = '507f1f77bcf86cd799439066';
+  const { invStore, movStore, invoiceRepo, bankMovementRepo, bankStatementRepo } = createInMemoryRepos({
+    invoices: [
+      {
+        uuid: 'INV-100',
+        periodo: '2026-09',
+        entidad: 'Personal',
+        emisor: 'Proveedor Parcial SA',
+        rfcEmisor: 'PPA010101AAA',
+        fechaEmision: '2026-09-05',
+        total: 100,
+        estadoSat: 'Vigente',
+        efecto: 'Ingreso',
+        estadoPago: 'No Pagada',
+        editadoManualmente: false
+      },
+      {
+        uuid: 'NC-10',
+        periodo: '2026-09',
+        entidad: 'Personal',
+        emisor: 'Proveedor Parcial SA',
+        rfcEmisor: 'PPA010101AAA',
+        fechaEmision: '2026-09-06',
+        total: 10,
+        estadoSat: 'Vigente',
+        efecto: 'Egreso',
+        estadoPago: 'No Aplica',
+        editadoManualmente: false
+      }
+    ],
+    movements: [
+      {
+        _id: movId,
+        periodo: '2026-09',
+        entidad: 'Personal',
+        tipo: 'Retiro',
+        monto: 90,
+        fecha: '07-SEP-2026',
+        concepto: 'SPEI PPA010101AAA',
+        banco: 'BBVA',
+        conciliado: false,
+        facturaUuid: null
+      }
+    ]
+  });
+
+  const reconService = createReconciliationService({ invoiceRepo, bankMovementRepo, bankStatementRepo });
+  await reconService.runReconciliationForPeriod('2026-09', 'Personal');
+  assert.equal(invStore.find((i) => i.uuid === 'INV-100').estadoPago, 'Pagada');
+
+  // Simular que se borro el estado de cuenta (desaparece el retiro)
+  movStore.length = 0;
+  await reconService.runReconciliationForPeriod('2026-09', 'Personal');
+
+  const invReleased = invStore.find((i) => i.uuid === 'INV-100');
+  const ncReleased = invStore.find((i) => i.uuid === 'NC-10');
+  assert.equal(invReleased.estadoPago, 'No Pagada');
+  assert.equal(invReleased.pagoAsociado, null);
+  assert.equal(invReleased.egresoAsociado, null);
+  assert.equal(invReleased.asignacionAutomatica, null);
+  assert.equal(ncReleased.ingresoAsociado, null);
+});
+
+test('undo-auto-nc: libera las tres partes, marca el rechazo y reconciliationService respeta rechazoAsignacionAutomatica', async () => {
+  const movId = '507f1f77bcf86cd799439077';
+  const { invStore, movStore, invoiceRepo, bankMovementRepo, bankStatementRepo } = createInMemoryRepos({
+    invoices: [
+      {
+        uuid: 'INV-100',
+        periodo: '2026-09',
+        entidad: 'Personal',
+        emisor: 'Proveedor Parcial SA',
+        rfcEmisor: 'PPA010101AAA',
+        fechaEmision: '2026-09-05',
+        total: 100,
+        estadoSat: 'Vigente',
+        efecto: 'Ingreso',
+        estadoPago: 'No Pagada',
+        editadoManualmente: false
+      },
+      {
+        uuid: 'NC-10',
+        periodo: '2026-09',
+        entidad: 'Personal',
+        emisor: 'Proveedor Parcial SA',
+        rfcEmisor: 'PPA010101AAA',
+        fechaEmision: '2026-09-06',
+        total: 10,
+        estadoSat: 'Vigente',
+        efecto: 'Egreso',
+        estadoPago: 'No Aplica',
+        editadoManualmente: false
+      }
+    ],
+    movements: [
+      {
+        _id: movId,
+        periodo: '2026-09',
+        entidad: 'Personal',
+        tipo: 'Retiro',
+        monto: 90,
+        fecha: '07-SEP-2026',
+        concepto: 'SPEI PPA010101AAA',
+        banco: 'BBVA',
+        conciliado: false,
+        facturaUuid: null
+      }
+    ]
+  });
+
+  const reconService = createReconciliationService({ invoiceRepo, bankMovementRepo, bankStatementRepo });
+  await reconService.runReconciliationForPeriod('2026-09', 'Personal');
+
+  // Deshacer la asignacion automatica
+  await reconService.undoAutoCreditNote({ uuid: 'INV-100' });
+
+  const invAfterUndo = invStore.find((i) => i.uuid === 'INV-100');
+  const ncAfterUndo = invStore.find((i) => i.uuid === 'NC-10');
+  const movAfterUndo = movStore.find((m) => m._id === movId);
+
+  assert.equal(invAfterUndo.estadoPago, 'No Pagada');
+  assert.equal(invAfterUndo.egresoAsociado, null);
+  assert.equal(invAfterUndo.pagoAsociado, null);
+  assert.equal(invAfterUndo.asignacionAutomatica, null);
+  assert.equal(invAfterUndo.rechazoAsignacionAutomatica, true);
+  assert.equal(ncAfterUndo.ingresoAsociado, null);
+  assert.equal(movAfterUndo.conciliado, false);
+  assert.equal(movAfterUndo.facturaUuid, null);
+
+  // Al volver a correr la conciliacion, no se vuelve a asignar automaticamente porque fue rechazada
+  await reconService.runReconciliationForPeriod('2026-09', 'Personal');
+  assert.equal(invStore.find((i) => i.uuid === 'INV-100').estadoPago, 'No Pagada');
+  assert.equal(invStore.find((i) => i.uuid === 'NC-10').ingresoAsociado, null);
+  assert.equal(movStore.find((m) => m._id === movId).conciliado, false);
+});

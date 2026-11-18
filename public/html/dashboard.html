@@ -133,6 +133,41 @@
         </div>
       </div>
 
+      <!-- Apartado: Asignadas automaticamente con nota de credito -->
+      <div class="auto-nc-panel" id="auto-nc-section">
+        <div class="panel-header" style="margin-bottom: 8px;">
+          <div>
+            <h3 style="font-size: 13.5px; font-weight: 700; color: var(--text-main); margin: 0;">
+              Asignadas automáticamente con nota de crédito (<span id="auto-nc-count">0</span>)
+            </h3>
+            <span style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 2px;">
+              Facturas conciliadas por nota de crédito parcial más retiro bancario (factura − nota de crédito = retiro).
+            </span>
+          </div>
+        </div>
+        <div class="table-container" id="auto-nc-table-wrapper">
+          <table class="table-excel">
+            <thead>
+              <tr>
+                <th>Proveedor</th>
+                <th style="width: 175px;">Factura</th>
+                <th style="width: 175px;">Nota de crédito</th>
+                <th>Retiro</th>
+                <th style="width: 230px;">Suma</th>
+                <th style="width: 100px; text-align: center;">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="auto-nc-rows">
+              <tr>
+                <td colspan="6" style="text-align: center; padding: 16px; color: var(--text-muted);">
+                  Sin asignaciones automáticas con nota de crédito en este periodo.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Barra de Filtros y Modo de Vista -->
       <div class="filter-bar">
         <div class="filter-tabs">

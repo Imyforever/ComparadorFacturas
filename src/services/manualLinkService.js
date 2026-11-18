@@ -49,6 +49,7 @@ const createManualLinkService = ({
     invoice.estadoPago = 'Pagada';
     invoice.editadoManualmente = true;
     invoice.fechaEdicionManual = clock();
+    invoice.asignacionAutomatica = null;
     invoice.pagoAsociado = buildPagoFromMovement(movement, invoice.total);
 
     movement.conciliado = true;
@@ -113,10 +114,14 @@ const createManualLinkService = ({
     }
 
     if (targetInvoice) {
-      if (targetInvoice.egresoAsociado?.uuid && !targetInvoice.pagoAsociado?.movimientoId) {
+      if (
+        targetInvoice.egresoAsociado?.uuid &&
+        (!targetInvoice.pagoAsociado?.movimientoId || targetInvoice.asignacionAutomatica?.tipo === 'nota-credito-parcial')
+      ) {
         await egresoService.releaseEgreso(targetInvoice.egresoAsociado.uuid);
         targetInvoice.egresoAsociado = null;
       }
+      targetInvoice.asignacionAutomatica = null;
       targetInvoice.estadoPago = 'No Pagada';
       targetInvoice.pagoAsociado = null;
       targetInvoice.editadoManualmente = false;
@@ -249,6 +254,8 @@ const createManualLinkService = ({
         invoice.ingresoAsociado = null;
       }
       invoice.pagoAsociado = null;
+      invoice.asignacionAutomatica = null;
+      invoice.rechazoAsignacionAutomatica = false;
       invoice.editadoManualmente = false;
       if (invoice.estadoSat !== 'Cancelado') invoice.estadoPago = 'No Pagada';
       if (observaciones !== undefined && observaciones !== null) {

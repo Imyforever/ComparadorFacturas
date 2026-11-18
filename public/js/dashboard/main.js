@@ -9,6 +9,7 @@ import { state } from './state.js';
 import { escapeHtml } from './format.js';
 import { filterInvoices, updateAnalyzedOptions } from './search.js';
 import {
+  renderAutoCreditNoteSection,
   renderDetailView,
   renderGroupedView,
   renderUnmatchedBankMovements,
@@ -102,6 +103,9 @@ function getDomEls() {
     btnToggleUnmatchedTable: document.getElementById('btn-toggle-unmatched-table'),
     unmatchedTableWrapper: document.getElementById('unmatched-table-wrapper'),
     unmatchedBankRows: document.getElementById('unmatched-bank-rows'),
+    autoNcSection: document.getElementById('auto-nc-section'),
+    autoNcCount: document.getElementById('auto-nc-count'),
+    autoNcRows: document.getElementById('auto-nc-rows'),
     cfdiStatus: document.getElementById('cfdi-status'),
     bankStatus: document.getElementById('bank-status'),
     editModal: document.getElementById('edit-invoice-modal'),
@@ -184,9 +188,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.success) {
         state.cachedInvoices = data.invoices || [];
         state.cachedUnmatchedMovements = data.unmatchedBankMovements || [];
+        state.cachedAutoNcAssignments = data.autoCreditNoteAssignments || [];
         updateSummary(els, data.summary);
         updateCfdiLockState(data.hasCfdiFile, data.summary?.totalFacturas || 0);
         renderBankStatements(data.bankStatements || []);
+        renderAutoCreditNoteSection(els, state);
         renderUnmatchedBankMovements(els, state);
         updateAnalyzedOptions(els, state.cachedInvoices, state.selectedField);
         applyFilterAndRender();
@@ -316,6 +322,32 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!btn) return;
     const movId = btn.dataset.movId;
     if (movId) openCompareModal(movId);
+  });
+
+  els.autoNcRows?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action="undo-auto-nc"]');
+    if (!btn) return;
+    const uuid = btn.dataset.uuid;
+    if (!uuid) return;
+
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Deshaciendo...';
+
+    try {
+      const { ok, data } = await api.undoAutoCreditNote(uuid);
+      if (ok && data.success) {
+        await reloadAll();
+      } else {
+        alert(data.message || 'Error al deshacer la asignación automática.');
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    } catch {
+      alert('Error de conexion con el servidor.');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   });
 
   // Movimientos sin factura

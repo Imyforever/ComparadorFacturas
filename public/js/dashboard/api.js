@@ -117,6 +117,13 @@ export const api = {
     });
   },
 
+  undoAutoCreditNote(uuid) {
+    return apiFetch('/api/reconciliation/undo-auto-nc', {
+      method: 'POST',
+      body: JSON.stringify({ uuid })
+    });
+  },
+
   updateInvoice(uuid, payload) {
     return apiFetch(`/api/reconciliation/invoice/${encodeURIComponent(uuid)}`, {
       method: 'PATCH',

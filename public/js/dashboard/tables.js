@@ -76,12 +76,29 @@ function buildStatusBadge(inv) {
 
   if (inv.editadoManualmente) {
     badgeHtml += '<br><span class="manual-tag">Manual</span>';
+  } else if (inv.asignacionAutomatica?.tipo === 'nota-credito-parcial') {
+    badgeHtml += '<br><span class="auto-nc-tag">Auto NC</span>';
   }
   return badgeHtml;
 }
 
 function buildPaymentDetailHtml(inv) {
   if (inv.estadoPago === 'Pagada') {
+    if (inv.egresoAsociado?.uuid && inv.pagoAsociado?.movimientoId) {
+      const uuid = escapeHtml(inv.egresoAsociado.uuid);
+      const shortUuid = escapeHtml(inv.egresoAsociado.uuid.substring(0, 16));
+      const p = inv.pagoAsociado;
+      return `
+        <div class="payment-detail" style="border-left: 3px solid #6366f1; padding-left: 6px;">
+          <span style="font-size:10px; font-weight:700; background:#e0e7ff; color:#3730a3; padding:1px 5px; border-radius:2px;">Nota de Crédito</span>
+          <span style="font-size:11.5px; font-weight:600; color:var(--text-main); margin-left:4px;">${formatMoney(inv.egresoAsociado.total || 0)}</span>
+          <span style="font-size:10.5px; color:#4338ca; font-family:monospace; margin-left:4px;" title="${uuid}">${shortUuid}...</span><br>
+          <strong>Banco:</strong> ${escapeHtml(p.banco || '-')} | <strong>Fecha:</strong> ${escapeHtml(p.fechaPago || '-')} | <strong>Retiro:</strong> ${formatMoney(p.montoRetiro || 0)}<br>
+          <strong>Concepto:</strong> ${escapeHtml(p.conceptoBanco || 'Retiro bancario')}
+        </div>
+      `;
+    }
+
     if (inv.egresoAsociado?.uuid) {
       const uuid = escapeHtml(inv.egresoAsociado.uuid);
       const shortUuid = escapeHtml(inv.egresoAsociado.uuid.substring(0, 16));
@@ -343,6 +360,98 @@ export function renderUnmatchedBankMovements(els, state) {
           <td style="text-align:center;">
             <button type="button" class="btn-action-small btn-action-primary" data-action="compare-movement" data-mov-id="${escapeHtml(m._id)}" title="Vincular con una factura recibida">
               Vincular
+            </button>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+export function renderAutoCreditNoteSection(els, state) {
+  if (!els.autoNcRows) return;
+
+  const derived = (state.cachedInvoices || [])
+    .filter((inv) => inv.asignacionAutomatica?.tipo === 'nota-credito-parcial' && inv.estadoPago === 'Pagada')
+    .map((inv) => {
+      const montoNota = Number(inv.egresoAsociado?.total || 0);
+      const montoRetiro = Number(inv.pagoAsociado?.montoRetiro || 0);
+      return {
+        invoiceUuid: inv.uuid,
+        emisor: inv.emisor,
+        rfcEmisor: inv.rfcEmisor,
+        facturaTotal: Number(inv.total || 0),
+        creditNoteUuid: inv.egresoAsociado?.uuid || '',
+        montoNota,
+        fechaRetiro: inv.pagoAsociado?.fechaPago || '',
+        conceptoRetiro: inv.pagoAsociado?.conceptoBanco || '',
+        montoRetiro
+      };
+    });
+
+  const items =
+    Array.isArray(state.cachedAutoNcAssignments) && state.cachedAutoNcAssignments.length > 0
+      ? state.cachedAutoNcAssignments
+      : derived;
+
+  if (els.autoNcCount) {
+    els.autoNcCount.textContent = items.length;
+  }
+
+  if (items.length === 0) {
+    els.autoNcRows.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; padding: 16px; color: var(--text-muted);">
+          Sin asignaciones automáticas con nota de crédito en este periodo.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  els.autoNcRows.innerHTML = items
+    .map((item) => {
+      const invUuid = String(item.invoiceUuid || '');
+      const ncUuid = String(item.creditNoteUuid || '');
+      const shortInvUuid = invUuid ? `${invUuid.substring(0, 8)}...` : '-';
+      const shortNcUuid = ncUuid ? `${ncUuid.substring(0, 8)}...` : '-';
+      const facturaCents = toCents(item.facturaTotal);
+      const notaCents = toCents(item.montoNota);
+      const retiroCents = toCents(item.montoRetiro);
+      const sumaCents = notaCents + retiroCents;
+      const cuadra = Math.abs(facturaCents - notaCents - retiroCents) < 5;
+      const sumClass = cuadra ? 'auto-nc-sum-ok' : 'auto-nc-sum-diff';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(item.emisor || 'Sin emisor')}</strong>
+            <div style="font-size:10.5px; color:var(--text-muted);"><code>${escapeHtml(item.rfcEmisor || '-')}</code></div>
+          </td>
+          <td>
+            <code style="font-size:11px;" title="${escapeHtml(invUuid)}">${escapeHtml(shortInvUuid)}</code>
+            <div style="font-weight:700; color:var(--text-main); margin-top:2px;">${formatMoney(item.facturaTotal)}</div>
+          </td>
+          <td>
+            <code style="font-size:11px;" title="${escapeHtml(ncUuid)}">${escapeHtml(shortNcUuid)}</code>
+            <div style="font-weight:700; color:#3730a3; margin-top:2px;">${formatMoney(item.montoNota)}</div>
+          </td>
+          <td>
+            <div style="font-size:11.5px;">
+              <strong>${escapeHtml(item.fechaRetiro || '-')}</strong> · <strong>${formatMoney(item.montoRetiro)}</strong>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+              ${escapeHtml(item.conceptoRetiro || 'Retiro bancario')}
+            </div>
+          </td>
+          <td>
+            <span class="${sumClass}">
+              ${formatMoney(item.montoNota)} + ${formatMoney(item.montoRetiro)} = ${formatMoney(fromCents(sumaCents))}
+            </span>
+          </td>
+          <td style="text-align:center;">
+            <button type="button" class="btn-action-small btn-undo-auto-nc" data-action="undo-auto-nc" data-uuid="${escapeHtml(invUuid)}" title="Deshacer asignación automática y liberar nota y retiro">
+              Deshacer
             </button>
           </td>
         </tr>

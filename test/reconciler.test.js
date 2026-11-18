@@ -45,9 +45,11 @@ test('factura con monto exacto queda Pagada y enlazada al retiro', () => {
   assert.equal(r.unmatchedWithdrawals.length, 0);
 });
 
-test('tolerancia: diferencia < 0.05 asocia, >= 0.05 no', () => {
-  assert.equal(reconcile([inv()], [tx({ monto: 1160.04 })]).reconciledInvoices[0].estadoPago, 'Pagada');
-  assert.equal(reconcile([inv()], [tx({ monto: 1160.05 })]).reconciledInvoices[0].estadoPago, 'No Pagada');
+test('solo coincidencia exacta al centavo', () => {
+  assert.equal(reconcile([inv()], [tx({ monto: 1160 })]).reconciledInvoices[0].estadoPago, 'Pagada');
+  for (const monto of [1159.99, 1160.01, 1160.04, 1160.05]) {
+    assert.equal(reconcile([inv()], [tx({ monto })]).reconciledInvoices[0].estadoPago, 'No Pagada', String(monto));
+  }
 });
 
 test('depositos no se usan para pagar facturas', () => {

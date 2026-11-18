@@ -116,6 +116,16 @@ const invoiceSchema = new mongoose.Schema(
       total: Number,
       fechaEmision: String,
       emisor: String
+    },
+    // Metadatos cuando la factura fue conciliada automaticamente con nota de credito parcial
+    asignacionAutomatica: {
+      tipo: { type: String, trim: true },
+      fecha: { type: Date }
+    },
+    // Indica si el usuario deshizo la asignacion automatica por nota de credito parcial
+    rechazoAsignacionAutomatica: {
+      type: Boolean,
+      default: false
     }
   },
   {
