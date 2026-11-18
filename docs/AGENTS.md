@@ -1,6 +1,6 @@
 # AGENTS.md — Comparador de Facturas
 
-Concilia facturas del SAT (reporte "Consulta CFDI" en PDF) contra estados de cuenta bancarios (BBVA, Scotiabank; PDF, CSV o Excel exportado como texto). Una factura queda **Pagada** cuando un **Retiro** del banco coincide en importe (tolerancia < 5 centavos), con desempate por RFC, nombre del proveedor y cercanía de fechas. Hay pestañas por **entidad** (cuenta: "Personal", "Empresa"...) y por **periodo** (`AAAA-MM`). También hay enlaces manuales, notas de crédito (Egreso) aplicadas a facturas, facturas capturadas a mano y exportación a CSV.
+Concilia facturas del SAT (reporte "Consulta CFDI" en PDF) contra estados de cuenta bancarios (BBVA, Scotiabank; PDF, CSV o Excel exportado como texto). Una factura queda **Pagada** cuando un **Retiro** del banco coincide en importe al centavo (o hasta 4 centavos si el retiro trae el RFC o nombre del proveedor; las notas de crédito automáticas solo exactas), con desempate por RFC, nombre del proveedor y cercanía de fechas. Hay pestañas por **entidad** (cuenta: "Personal", "Empresa"...) y por **periodo** (`AAAA-MM`). También hay enlaces manuales, notas de crédito (Egreso) aplicadas a facturas, facturas capturadas a mano y exportación a CSV.
 
 Stack: Node 24 (CommonJS), Express 4, Mongoose 8 (MongoDB Atlas), multer (subidas en memoria), pdf-parse 2, Cloudflare R2 opcional. Frontend: HTML + CSS + JS vanilla sin build (`public/`).
 

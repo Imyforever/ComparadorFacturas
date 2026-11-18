@@ -2,7 +2,9 @@
  * Motor de Conciliacion entre Facturas del SAT y Movimientos Bancarios
  *
  * Estrategia:
- *  1. Se generan todos los pares (factura, retiro) cuyo importe coincide exactamente (al centavo).
+ *  1. Se generan los pares (factura, retiro) cuyo importe coincide al centavo, o difiere hasta
+ *     MAX_DIFF_CENTS (redondeos/comisiones del banco) SOLO si el RFC o el nombre del proveedor
+ *     aparece en el retiro. Asi no se liga una factura a un pago ajeno por centavos.
  *  2. Cada par recibe un puntaje: RFC coincidente > nombre de proveedor coincidente > monto exacto,
  *     con desempate por cercania entre la fecha de emision y la fecha del retiro.
  *  3. Se asignan los pares de mayor a menor puntaje sin reutilizar facturas ni retiros.
@@ -12,9 +14,8 @@ const { parseFlexibleDate } = require('../utils/dates');
 const { toCents, fromCents, round2 } = require('../utils/money');
 const { normalizeText, matchVendorName } = require('../utils/text');
 
-// Coincidencia exacta al centavo: toleranceCents = 1 y se descarta toda diferencia >= 1 centavo
-const AMOUNT_TOLERANCE = 0.01;
-const EXACT_TOLERANCE = 0.005;
+// Diferencia maxima (en centavos) aceptada cuando el retiro identifica al proveedor.
+const MAX_DIFF_CENTS = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -23,7 +24,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * @param {Array<Object>} bankTransactions - Lista de movimientos bancarios (Retiros)
  * @returns {Object} Resultado de la conciliacion con facturas actualizadas y resumen
  */
-const reconcile = (invoices = [], bankTransactions = []) => {
+const reconcile = (invoices = [], bankTransactions = [], { maxDiffCents = MAX_DIFF_CENTS } = {}) => {
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
   const withdrawals = (Array.isArray(bankTransactions) ? bankTransactions : []).filter(
     (tx) => tx && tx.tipo === 'Retiro' && Number.isFinite(Number(tx.monto))
@@ -43,7 +44,6 @@ const reconcile = (invoices = [], bankTransactions = []) => {
     if (!byCents.has(cents)) byCents.set(cents, []);
     byCents.get(cents).push(idx);
   });
-  const toleranceCents = toCents(AMOUNT_TOLERANCE);
 
   const results = new Array(safeInvoices.length);
   const pairs = [];
@@ -66,14 +66,13 @@ const reconcile = (invoices = [], bankTransactions = []) => {
     const normRfc = normalizeText(invRfc).replace(/\s+/g, '');
     const invDate = parseFlexibleDate(inv.fechaEmision);
 
-    for (let c = totalCents - toleranceCents; c <= totalCents + toleranceCents; c++) {
+    for (let c = totalCents - maxDiffCents; c <= totalCents + maxDiffCents; c++) {
       const idxs = byCents.get(c);
       if (!idxs) continue;
 
       for (const txIdx of idxs) {
         const info = txInfo[txIdx];
         const diffCents = Math.abs(info.montoCents - totalCents);
-        if (diffCents >= toleranceCents) continue;
         const diff = fromCents(diffCents);
 
         const rfcMatch =
@@ -81,15 +80,14 @@ const reconcile = (invoices = [], bankTransactions = []) => {
           (normRfc.length >= 12 && info.normConcept.replace(/\s+/g, '').includes(normRfc));
         const nameMatch = !rfcMatch && matchVendorName(inv.emisor, info.normConcept, true);
 
-        if (diff > EXACT_TOLERANCE && info.rfc && invRfc && info.rfc !== invRfc && !rfcMatch && !nameMatch) {
-          continue;
-        }
+        // Con diferencia de centavos solo se acepta si el retiro identifica al proveedor
+        if (diffCents > 0 && !rfcMatch && !nameMatch) continue;
 
         let score = 0;
         if (rfcMatch) score += 1000;
         else if (nameMatch) score += 500;
-        if (diff <= EXACT_TOLERANCE) score += 100;
-        else score += Math.max(0, 50 - diff * 1000);
+        if (diffCents === 0) score += 100;
+        else score += Math.max(0, 50 - diffCents * 10);
 
         if (invDate && info.date) {
           const days = Math.abs(info.date.getTime() - invDate.getTime()) / DAY_MS;
@@ -177,6 +175,7 @@ const reconcile = (invoices = [], bankTransactions = []) => {
 };
 
 module.exports = {
+  MAX_DIFF_CENTS,
   reconcile,
   normalizeText,
   matchVendorName

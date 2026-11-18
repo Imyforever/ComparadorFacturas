@@ -45,11 +45,26 @@ test('factura con monto exacto queda Pagada y enlazada al retiro', () => {
   assert.equal(r.unmatchedWithdrawals.length, 0);
 });
 
-test('solo coincidencia exacta al centavo', () => {
-  assert.equal(reconcile([inv()], [tx({ monto: 1160 })]).reconciledInvoices[0].estadoPago, 'Pagada');
-  for (const monto of [1159.99, 1160.01, 1160.04, 1160.05]) {
-    assert.equal(reconcile([inv()], [tx({ monto })]).reconciledInvoices[0].estadoPago, 'No Pagada', String(monto));
-  }
+test('centavos de diferencia: hasta 4 solo si el retiro identifica al proveedor', () => {
+  const estado = (over) => reconcile([inv()], [tx(over)]).reconciledInvoices[0].estadoPago;
+  // Con el nombre del proveedor en el concepto: acepta 1..4 centavos, rechaza 5
+  for (const monto of [1159.99, 1160.01, 1159.96, 1160.04]) assert.equal(estado({ monto }), 'Pagada', String(monto));
+  assert.equal(estado({ monto: 1160.05 }), 'No Pagada');
+  assert.equal(estado({ monto: 1159.95 }), 'No Pagada');
+  // Con el RFC en el concepto (con espacios, como lo imprime el banco)
+  assert.equal(estado({ monto: 1160.02, concepto: 'TIENDA X RFC: PLO 010101AAA' }), 'Pagada');
+  // Sin RFC ni nombre: solo exacto
+  assert.equal(estado({ monto: 1160, concepto: 'PAGO TARJETA' }), 'Pagada');
+  assert.equal(estado({ monto: 1160.01, concepto: 'PAGO TARJETA' }), 'No Pagada');
+  // RFC detectado de otro proveedor
+  assert.equal(estado({ monto: 1160.01, concepto: 'PAGO TARJETA', rfcDetectado: 'ZZZ010101ZZZ' }), 'No Pagada');
+});
+
+test('el monto exacto gana sobre uno con centavos de diferencia', () => {
+  const r = reconcile([inv()], [tx({ _id: 'CASI', monto: 1160.01 }), tx({ _id: 'EXACTO', monto: 1160 })]);
+  assert.equal(r.reconciledInvoices[0].pagoAsociado.movimientoId, 'EXACTO');
+  const r2 = reconcile([inv()], [tx({ monto: 1160.03 })]);
+  assert.equal(r2.reconciledInvoices[0].pagoAsociado.diferencia, 0.03);
 });
 
 test('depositos no se usan para pagar facturas', () => {
