@@ -557,26 +557,31 @@ const createReconciliationService = ({
     if (invoice.efecto === 'Egreso') {
       throw httpError(400, 'Debe especificar el UUID de la factura de ingreso, no el de la nota de crédito.');
     }
-    if (!isAutoCreditNoteInvoice(invoice) && !invoice.egresoAsociado?.uuid && !invoice.pagoAsociado?.movimientoId) {
+    // Solo se deshacen asignaciones AUTOMATICAS por nota de credito (nunca vinculos manuales)
+    if (!isAutoCreditNoteInvoice(invoice) || invoice.editadoManualmente) {
       throw httpError(400, 'La factura no tiene una asignación automática con nota de crédito para deshacer.');
     }
 
     const egresoUuid = invoice.egresoAsociado?.uuid || null;
     const movId = invoice.pagoAsociado?.movimientoId || null;
 
+    // Liberar el retiro solo si sigue apuntando a ESTA factura (filtro condicional)
     if (movId) {
-      if (typeof bankMovementRepo.releaseById === 'function') {
-        await bankMovementRepo.releaseById(movId);
-      } else if (typeof bankMovementRepo.bulkWrite === 'function') {
-        await bankMovementRepo.bulkWrite([
-          { updateOne: { filter: { _id: movId }, update: { $set: { conciliado: false, facturaUuid: null } } } }
-        ]);
-      }
+      await bankMovementRepo.bulkWrite([
+        {
+          updateOne: {
+            filter: { _id: movId, facturaUuid: invoice.uuid },
+            update: { $set: { conciliado: false, facturaUuid: null } }
+          }
+        }
+      ]);
     }
 
     let creditNote = null;
     if (egresoUuid) {
       creditNote = await invoiceRepo.findByUuid(egresoUuid);
+      // Liberar la nota solo si sigue aplicada a ESTA factura
+      if (creditNote && creditNote.ingresoAsociado?.uuid !== invoice.uuid) creditNote = null;
       if (creditNote) {
         creditNote.ingresoAsociado = null;
         creditNote.editadoManualmente = false;
@@ -590,10 +595,6 @@ const createReconciliationService = ({
             ]);
           }
         }
-      } else if (typeof invoiceRepo.bulkWrite === 'function') {
-        await invoiceRepo.bulkWrite([
-          { updateOne: { filter: { uuid: egresoUuid }, update: { $set: { ingresoAsociado: null, editadoManualmente: false } } } }
-        ]);
       }
     }
 
