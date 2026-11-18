@@ -112,7 +112,10 @@ const createInMemoryRepos = ({ invoices = [], movements = [], externalInvoices =
     bulkWrite: async (ops) => {
       for (const op of ops) {
         if (op.updateOne) {
-          const target = movStore.find((m) => String(m._id) === String(op.updateOne.filter._id));
+          // Igual que Mongo: el documento debe cumplir TODOS los campos del filtro
+          const target = movStore.find((m) =>
+            Object.entries(op.updateOne.filter).every(([k, v]) => String(m[k] ?? null) === String(v ?? null))
+          );
           if (target && op.updateOne.update.$set) {
             Object.assign(target, op.updateOne.update.$set);
           }
@@ -639,4 +642,48 @@ test('undo-auto-nc: libera las tres partes, marca el rechazo y reconciliationSer
   assert.equal(invStore.find((i) => i.uuid === 'INV-100').estadoPago, 'No Pagada');
   assert.equal(invStore.find((i) => i.uuid === 'NC-10').ingresoAsociado, null);
   assert.equal(movStore.find((m) => m._id === movId).conciliado, false);
+});
+
+test('undo-auto-nc: rechaza facturas que no son asignacion automatica (vinculos manuales intactos)', async () => {
+  const movId = '507f1f77bcf86cd799439088';
+  const { invStore, movStore, invoiceRepo, bankMovementRepo, bankStatementRepo } = createInMemoryRepos({
+    invoices: [
+      {
+        uuid: 'INV-MAN', periodo: '2026-09', entidad: 'Personal', emisor: 'Prov', rfcEmisor: 'PRO010101AAA',
+        fechaEmision: '2026-09-05', total: 100, estadoSat: 'Vigente', efecto: 'Ingreso', estadoPago: 'Pagada',
+        editadoManualmente: true, pagoAsociado: { movimientoId: movId, montoRetiro: 100 }
+      }
+    ],
+    movements: [{ _id: movId, periodo: '2026-09', entidad: 'Personal', tipo: 'Retiro', monto: 100, conciliado: true, facturaUuid: 'INV-MAN' }]
+  });
+  const svc = createReconciliationService({ invoiceRepo, bankMovementRepo, bankStatementRepo });
+  await assert.rejects(svc.undoAutoCreditNote({ uuid: 'INV-MAN' }), { status: 400 });
+  assert.equal(invStore[0].estadoPago, 'Pagada');
+  assert.equal(movStore[0].conciliado, true);
+});
+
+test('undo-auto-nc: no libera nota ni retiro que ya pertenecen a otra factura', async () => {
+  const movId = '507f1f77bcf86cd799439099';
+  const { invStore, movStore, invoiceRepo, bankMovementRepo, bankStatementRepo } = createInMemoryRepos({
+    invoices: [
+      {
+        uuid: 'INV-A', periodo: '2026-09', entidad: 'Personal', emisor: 'Prov', rfcEmisor: 'PRO010101AAA',
+        fechaEmision: '2026-09-05', total: 100, estadoSat: 'Vigente', efecto: 'Ingreso', estadoPago: 'Pagada',
+        editadoManualmente: false, asignacionAutomatica: { tipo: 'nota-credito-parcial', fecha: new Date() },
+        egresoAsociado: { uuid: 'NC-X', total: 10 }, pagoAsociado: { movimientoId: movId, montoRetiro: 90 }
+      },
+      {
+        uuid: 'NC-X', periodo: '2026-09', entidad: 'Personal', emisor: 'Prov', rfcEmisor: 'PRO010101AAA',
+        fechaEmision: '2026-09-06', total: 10, estadoSat: 'Vigente', efecto: 'Egreso', estadoPago: 'No Aplica',
+        ingresoAsociado: { uuid: 'INV-B', total: 50 }
+      }
+    ],
+    movements: [{ _id: movId, periodo: '2026-09', entidad: 'Personal', tipo: 'Retiro', monto: 90, conciliado: true, facturaUuid: 'INV-B' }]
+  });
+  const svc = createReconciliationService({ invoiceRepo, bankMovementRepo, bankStatementRepo });
+  await svc.undoAutoCreditNote({ uuid: 'INV-A' });
+  assert.equal(invStore.find((i) => i.uuid === 'INV-A').estadoPago, 'No Pagada');
+  assert.equal(invStore.find((i) => i.uuid === 'NC-X').ingresoAsociado.uuid, 'INV-B');
+  assert.equal(movStore[0].conciliado, true);
+  assert.equal(movStore[0].facturaUuid, 'INV-B');
 });
